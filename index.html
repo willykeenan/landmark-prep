@@ -3,9 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>NY Real Estate Prep</title>
-  <meta name="description" content="Free, open-source study kit for the New York real estate salesperson exam: notes for all 19 syllabus units, flashcards, 480+ practice questions, a timed 75-question mock exam, unlimited math drills and a step-by-step licensing roadmap.">
-  <meta name="theme-color" content="#0f5c78">
+  <title>Landmark Prep · Real estate license exam prep</title>
+  <meta name="description" content="Free real estate license exam prep: study notes, practice questions with explanations, adaptive flashcards, timed mock exams, math drills and your state's licensing roadmap. Complete New York course plus the national exam core for every state.">
+  <meta name="theme-color" content="#0d1b3e">
+  <meta property="og:title" content="Landmark Prep · Real estate license exam prep">
+  <meta property="og:description" content="Study notes, practice questions with explanations, flashcards, timed mock exams and your state's licensing roadmap. Free and open source.">
+  <meta property="og:type" content="website">
+  <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/fraunces-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -13,8 +18,11 @@
   <a class="skip" href="#main">Skip to content</a>
   <header class="top">
     <div class="top-inner">
-      <a class="brand" href="#/">NY Real Estate Prep</a>
-      <button class="theme-btn" id="themeBtn" type="button" aria-label="Toggle color theme">◐</button>
+      <a class="brand" href="#/" aria-label="Landmark Prep home"><span class="w1">Landmark</span><span class="w2">Prep</span></a>
+      <div class="top-actions">
+        <button class="state-btn" id="stateBtn" type="button" aria-label="Choose your state"></button>
+        <button class="theme-btn" id="themeBtn" type="button" aria-label="Toggle color theme">◐</button>
+      </div>
     </div>
     <nav class="tabs" aria-label="Main">
       <a href="#/" data-tab="home">Home</a>
@@ -29,9 +37,9 @@
   </header>
   <main id="main" tabindex="-1"></main>
   <footer class="foot">
-    <p>Free and open source. Not legal advice and not a substitute for the required 77-hour course. Always confirm rules at <a href="https://dos.ny.gov/real-estate-agent" rel="noopener">dos.ny.gov</a>. <a href="#/about">About &amp; sources</a></p>
+    <p>Landmark Prep by KE Studios. Exam prep and study help, not a pre-licensing school, not affiliated with any state real estate commission, and not legal advice. Always confirm rules with your state's regulator. <a href="#/pricing">Plans</a> · <a href="#/about">About</a> · <a href="#/terms">Terms</a> · <a href="#/privacy">Privacy</a> · <a href="https://github.com/willykeenan/landmark-prep" rel="noopener">Open source</a></p>
   </footer>
-  <noscript><p class="wrap">This study kit needs JavaScript turned on.</p></noscript>
+  <noscript><p class="wrap">Landmark Prep needs JavaScript turned on.</p></noscript>
 
   <script src="data/units-a.js"></script>
   <script src="data/units-b.js"></script>
@@ -41,8 +49,13 @@
   <script src="data/questions-c.js"></script>
   <script src="data/glossary.js"></script>
   <script src="data/roadmap.js"></script>
+  <script src="data/national-units.js"></script>
+  <script src="data/national-questions-a.js"></script>
+  <script src="data/national-questions-b.js"></script>
+  <script src="data/states.js"></script>
   <script src="data/math.js"></script>
   <script src="data/exam-plan.js"></script>
+  <script src="data/legal.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

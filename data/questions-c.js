@@ -1,4 +1,4 @@
-/* NY Real Estate Prep — original practice questions, units 10–19. */
+/* Landmark Prep, New York course — original practice questions, units 10–19. */
 (function (NYRE) {
   NYRE.questions = NYRE.questions || [];
   function Q(u, q, c, a, e) { NYRE.questions.push({ u: u, q: q, c: c, a: a, e: e }); }

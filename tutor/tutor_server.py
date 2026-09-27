@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NY Real Estate Prep — local AI tutor service.
+"""Landmark Prep — local AI tutor service.
 
 Runs on your own computer and answers study questions with the Claude Code CLI
 (`claude -p`), using whatever Claude login that CLI has (e.g. a Claude

@@ -1,4 +1,4 @@
-/* NY Real Estate Prep — original practice questions, units 1–3.
+/* Landmark Prep, New York course — original practice questions, units 1–3.
  * Q(unit, question, [choices], correctIndex, explanation). Choices are shuffled at display time
  * (numeric choice sets are shown in ascending order instead). */
 (function (NYRE) {

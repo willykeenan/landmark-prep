@@ -1,4 +1,4 @@
-/* NY Real Estate Prep — how many mock-exam questions each unit gets.
+/* Landmark Prep — how many mock-exam questions each unit gets.
  * Proportional to syllabus hours (largest remainder), at least 1 per unit. Pure function, tested in tests/. */
 (function (NYRE) {
   NYRE.examAllocation = function (units, count) {

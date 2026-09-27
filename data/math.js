@@ -1,4 +1,4 @@
-/* NY Real Estate Prep — unlimited math drills.
+/* Landmark Prep — unlimited math drills.
  * Each generator returns {topic, q, c: [4 strings], a: index, e: explanation}.
  * Pass an rng (() => [0,1)) for deterministic tests. */
 (function (NYRE) {

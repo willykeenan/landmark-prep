@@ -1,4 +1,4 @@
-/* NY Real Estate Prep — study notes, units 1–5.
+/* Landmark Prep, New York course — study notes, units 1–5.
  * Written from the NYS DOS 77-hour salesperson syllabus (eff. 12/21/2022) and the
  * DOS "Real Estate License Law" booklet (March 2026 edition). Plain-language summaries, not legal advice.
  * Markup: **bold** and _italic_ only. */

@@ -1,5 +1,6 @@
 """End-to-end check in headless Chromium: every screen renders with no console errors,
-and the main flows work (practice, flashcards, math, mock exam, progress export).
+and the main flows work (state picker, practice, flashcards, math, mock exam, progress export)
+for the full New York course and the national track (Texas).
 Also saves README screenshots to docs/images/.  Run:  python3 tests/e2e.py"""
 import http.server, json, os, socketserver, sys, threading, functools
 from playwright.sync_api import sync_playwright
@@ -29,11 +30,17 @@ with sync_playwright() as p:
         pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
         pg.on("dialog", lambda d: d.accept())
         pg.goto(BASE)
+        pg.evaluate("localStorage.clear()"); pg.reload(); pg.wait_for_selector("main h1")
+        # First visit: no state yet, so the picker sets the track.
+        pg.click("#stateBtn"); pg.click("[data-state='NY']"); pg.wait_for_selector("main h1")
+        ok("New York" in pg.inner_text("main h1"), f"[{tag}] state picker selects New York")
         if tag == "mobile":
-            pg.wait_for_selector("main h1"); pg.screenshot(path=os.path.join(IMG, "mobile-home.png"))
-        for route, h1 in [("#/", "Free study kit"), ("#/roadmap", "How to get"), ("#/study", "Study notes"), ("#/unit/2", "Law of Agency"),
+            pg.screenshot(path=os.path.join(IMG, "mobile-home.png"))
+        for route, h1 in [("#/", "New York real estate exam"), ("#/roadmap", "How to get"), ("#/study", "Study notes"), ("#/unit/2", "Law of Agency"),
                           ("#/cards", "Flashcards"), ("#/practice", "Practice questions"), ("#/math", "Math drills"),
-                          ("#/exam", "Mock state exam"), ("#/progress", "Your progress"), ("#/about", "About")]:
+                          ("#/exam", "Mock state exam"), ("#/progress", "Your progress"), ("#/about", "About"),
+                          ("#/pricing", "Free to study"), ("#/terms", "Terms of Service"), ("#/privacy", "Privacy Policy"),
+                          ("#/refunds", "Cancellation and Refund Policy")]:
             pg.goto(BASE + route); pg.wait_for_selector("main h1")
             ok(h1 in pg.inner_text("main h1"), f"[{tag}] {route} renders")
             w = pg.evaluate("document.documentElement.scrollWidth - window.innerWidth")
@@ -77,6 +84,25 @@ with sync_playwright() as p:
         with pg.expect_download() as d: pg.click("#exp")
         data = json.load(open(d.value.path()))
         ok(data.get("app") == "ny-real-estate-prep" and data["data"]["exams"], f"[{tag}] progress export works")
+        # National track: pick Texas, study a national unit, practice it, and start the national-portion exam.
+        pg.goto(BASE + "#/"); pg.click("#stateBtn"); pg.click("[data-state='TX']"); pg.wait_for_selector("main h1")
+        ok("Texas" in pg.inner_text("main h1"), f"[{tag}] switching to Texas re-targets the home page")
+        for route, h1 in [("#/roadmap", "How to get your Texas license"), ("#/study", "Study notes"), ("#/unit/105", "Agency"), ("#/cards", "Flashcards")]:
+            pg.goto(BASE + route); pg.wait_for_selector("main h1")
+            ok(h1 in pg.inner_text("main h1"), f"[{tag}] TX {route} renders")
+            w = pg.evaluate("document.documentElement.scrollWidth - window.innerWidth")
+            ok(w <= 1, f"[{tag}] TX {route} has no horizontal scroll ({w}px)")
+        pg.goto(BASE + "#/roadmap"); pg.wait_for_selector("main h1")
+        ok("quoted from an official source" in pg.inner_text("main"), f"[{tag}] TX roadmap says its numbers are quoted from official sources")
+        pg.click(".cites summary")
+        ok(pg.locator(".cites li").count() >= 3 and "pearsonvue.com" in pg.inner_text(".cites"), f"[{tag}] TX roadmap shows the quote and source behind each number")
+        pg.goto(BASE + "#/practice/unit/105"); pg.click("[data-count='10']"); pg.click("#start")
+        pg.locator(".choice").first.click()
+        ok(pg.locator(".feedback").count() == 1, f"[{tag}] national practice gives feedback")
+        pg.goto(BASE + "#/exam"); pg.click("#startNew")
+        units = pg.evaluate("JSON.parse(localStorage.getItem('nyre.examInProgress')).items.map(function (it) { var q = window.NYRE.questions.find(function (x) { return x.id === it.id; }); return q ? q.u : null; })")
+        ok(len(units) == 80, f"[{tag}] national exam has 80 questions ({len(units)})")
+        ok(all(u is not None and 101 <= u <= 111 for u in units), f"[{tag}] national exam draws only national units")
         ctx.close()
     b.close()
 srv.shutdown()

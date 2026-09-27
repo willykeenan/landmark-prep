@@ -1,21 +1,26 @@
-# NY Real Estate Prep
+# Landmark Prep
 
-A free, open-source study kit for the **New York State real estate salesperson exam**. There's nothing to install and no accounts; it works offline.
+Free, open-source exam prep for the **real estate salesperson license, in every state**. Pick your state and it tailors the notes, practice, mock exam and licensing roadmap. It has no accounts and nothing to install, and it works offline.
 
-**Use it now:** https://willykeenan.github.io/ny-real-estate-prep/
+**Use it now:** https://willykeenan.github.io/landmark-prep/
 
-![NY Real Estate Prep](docs/images/social-preview.png)
+![Landmark Prep](docs/images/social-preview.png)
+
+## Two tracks
+
+- **New York: the full course.** It covers all 19 subjects of the official 77-hour syllabus, including NY law, with a New York–format mock exam (75 questions, 90 minutes, 70% to pass).
+- **Every other state: the national exam core.** It covers the 11 topics of the national (multistate) portion that every state's exam shares. Your state's official requirements appear alongside. State-law courses for more states are coming.
 
 ## What's inside
 
 | | |
 |---|---|
-| **Study notes** | All 19 subjects of the official 77-hour syllabus (NYS DOS, eff. 12/21/2022). Each has a "numbers to know" table and an "exam traps" list. |
-| **523 practice questions** | Original questions with an explanation for every answer, citing the statute or regulation where relevant. Practice by unit, unseen, or missed-last-time. |
-| **423 flashcards** | Built from the syllabus "Key Terms" lists, with spaced repetition (Leitner boxes). |
-| **Mock state exam** | 75 questions in 90 minutes, drawn from every unit in proportion to its syllabus hours. You get a pass/fail against 70%, a per-unit breakdown, and a full review. |
-| **Unlimited math drills** | 24 problem types (commission splits, net-to-seller, prorations on 360- and 365-day years, transfer and mortgage recording tax, cap rates, depreciation, and more), freshly generated each time. |
-| **Licensing roadmap** | Step-by-step, with official links. It shows how to get licensed for about **$80 total**: a free DOS-approved 77-hour course, free library proctoring, the $15 exam and the $65 license. |
+| **Study notes** | 19 New York units and 11 national units, each with a "numbers to know" table and an "exam traps" list. |
+| **792 practice questions** | 523 for New York and 269 for the national core, all original, with an explanation for every answer. Practice by unit, unseen, or missed-last-time. |
+| **Flashcards** | 423 key terms with spaced repetition (Leitner boxes). The national track drops the 34 New York–only terms. |
+| **Mock exam** | Drawn from every unit in proportion to its study hours. You get pass/fail, a per-unit breakdown and a full review. New York uses the state format; other states get the national portion, sized to their exam. |
+| **Unlimited math drills** | 24 problem types, including commission splits, net-to-seller, prorations, cap rates and depreciation. New York adds transfer, mortgage-recording and mansion tax. Problems are freshly generated each time. |
+| **Licensing roadmap** | Step by step, with official links. New York shows how to get licensed for about **$80 total** (a free state-approved 77-hour course, the $15 exam and the $65 license). Every other state shows its quoted requirements. |
 
 Progress is saved in your browser, and you can export or import it to switch devices.
 
@@ -23,13 +28,27 @@ Progress is saved in your browser, and you can export or import it to switch dev
 |---|---|---|
 | ![Practice](docs/images/practice.png) | ![Exam](docs/images/exam.png) | ![Mobile](docs/images/mobile-home.png) |
 
+## State facts are quoted, not guessed
+
+Each state's pre-licensing hours, exam vendor, question counts and passing score were collected in September 2026 from official pages only: the state regulator, other .gov sites, and the exam vendors' candidate bulletins. Every number carries the exact sentence it came from and a link, and the app shows them under **Where each number comes from**.
+
+48 of 51 states (with DC) have quoted hours, backed by 193 quoted facts in all. Anything that couldn't be confirmed is left blank and labelled, never filled in from memory.
+
+Check that every quote is still on its official page:
+
+```bash
+node scripts/check-state-sources.mjs          # all states (needs network; PDFs need pdftotext)
+node scripts/check-state-sources.mjs TX NJ    # just these
+```
+
 ## Optional: a personal AI tutor that runs on your own computer
 
-`tutor/tutor_server.py` is a small local service (Python standard library only) that powers a **Tutor** tab in the app. It answers with the [Claude Code](https://claude.com/claude-code) CLI using that CLI's own login, grounded in the study notes (`tutor/knowledge.md`, built by `node tutor/build_knowledge.mjs`).
+`tutor/tutor_server.py` is a small local service (Python standard library only) that powers a **Tutor** tab in the app. It answers with the [Claude Code](https://claude.com/claude-code) CLI using that CLI's own login, grounded in the New York study notes (`tutor/knowledge.md`, built by `node tutor/build_knowledge.mjs`).
 
-- **Per-student memory, database style:** a local SQLite database holds each user's access level (`granted` / `paid` / `none`), full conversation history, latest study progress, and a short **brainfile** the tutor rewrites as it learns the student's goals, weak spots and preferences. The brainfile is mirrored to `data/brains/<user>.md`.
-- **Locked down:** the model runs with **no tools** (`--tools ""`), no MCP servers, no user/project settings or hooks, in an empty temporary directory. It can only return text. Requests need a shared bearer token, and there are per-user rate limits.
-- **Hook it up:** serve the app with `<html data-tutor-api="/your/api">`. Your server (which handles sign-in) forwards `POST /chat` and `GET /history` to the tutor with `Authorization: Bearer <token>` and `X-KE-User: <username>`.
+- **Per-student memory, database style:** a local SQLite database holds each user's access level (`granted` / `paid` / `none`), full conversation history, latest study progress, and a short **brainfile**. The tutor rewrites the brainfile as it learns the student's goals, weak spots and preferences, and mirrors it to `data/brains/<user>.md`.
+- **Locked down:** the model runs with **no tools** (`--tools ""`), no MCP servers, no user or project settings or hooks, in an empty temporary directory. It can only return text. Requests need a shared bearer token, and there are per-user rate limits.
+- **Hook it up:** serve the app with `<html data-tutor-api="/your/api">`. Your server handles sign-in and forwards `POST /chat` and `GET /history` to the tutor with `Authorization: Bearer <token>` and `X-KE-User: <username>`. Add `data-default-state="NY"` to open on a state.
+- **Runs under launchd/systemd:** the service finds the `claude` CLI in the usual install locations and passes the account name the CLI needs to find its login.
 
 ![Tutor tab](docs/images/tutor.png)
 
@@ -40,11 +59,17 @@ python3 tutor/tutor_server.py --env-file tutor.env serve     # tutor.env: TUTOR_
 
 ## Important
 
-- This **does not replace the required 77-hour course**. NY law requires that course from a DOS-approved school before you can be licensed. The roadmap shows a free option.
-- It is **not legal advice**. Laws, fees and school offers change, so confirm with the [NY Department of State](https://dos.ny.gov/real-estate-agent).
+- This **does not replace your state's required pre-licensing course**. Every state requires education from a school it approves before you can be licensed. For New York, the roadmap shows a free option.
+- It is **not legal advice** and not affiliated with any state real estate commission. Laws, fees and exam formats change, so confirm with your state's regulator.
 - The questions are **original**. They are not copied from any exam, course or book, and they are not actual state exam questions.
+- The paid Tutor plan in the app is marked "coming soon". Nothing here takes payments. The terms, privacy and refund pages (`legal/`) describe how that plan will work.
 
-Content was checked in September 2026 against the DOS 77-hour curriculum, the DOS *Real Estate License Law* booklet (March 2026 edition), the DOS salesperson pages, and later changes. Those include the 2024 Property Condition Disclosure amendments (the $500 credit is gone), the DOS-2156 Housing & Anti-Discrimination Disclosure form, the 3-year Division of Human Rights filing window (claims on or after 2/15/2024), HSTPA tenant rules, and the NYC FARE Act.
+The New York content was checked in September 2026 against:
+
+- the DOS 77-hour curriculum;
+- the DOS *Real Estate License Law* booklet (March 2026 edition);
+- the DOS salesperson pages;
+- later changes, including the 2024 Property Condition Disclosure amendments, the DOS-2156 Housing & Anti-Discrimination Disclosure form, HSTPA tenant rules and the NYC FARE Act.
 
 ## Run it locally
 
@@ -54,35 +79,34 @@ It's a static site with no build step:
 python3 -m http.server 8000
 ```
 
-Then open http://localhost:8000. You can also open `index.html` directly.
+Then open http://localhost:8000.
 
 ## Tests
 
 ```bash
 node tests/validate.mjs        # content and logic checks (no dependencies)
-python3 tests/e2e.py           # headless browser run-through (needs: pip install playwright && playwright install chromium)
+python3 tests/e2e.py           # headless browser run-through, New York and national tracks (pip install playwright && playwright install chromium)
 python3 tutor/test_tutor.py    # tutor service: access levels, isolation, brainfile, rate limits, tool-free model call
 python3 tests/e2e_tutor.py     # Tutor tab in the browser against a fake-model tutor
 ```
 
 `validate.mjs` checks:
 
-- the syllabus hours (77)
-- well-formed and unique questions
-- balanced answer positions
-- 12,000 generated math problems (valid, unambiguous, arithmetic spot-checked)
-- the mock-exam allocation
-- a list of known-stale facts that must not appear, such as the old $1,000 fine cap or the removed $500 PCDS credit
+- the syllabus hours;
+- well-formed, unique questions on both tracks;
+- balanced answer positions;
+- 12,000 generated math problems;
+- the mock-exam allocation;
+- that no state number is shown without an official quote that supports it;
+- that no data file contains code;
+- a list of known-stale facts that must not appear.
 
 ## Contributing
 
-Corrections are especially welcome. If a rule has changed, open an issue with the source link.
-
-- **Add a question:** in `data/questions-*.js`, add `Q(unit, "question", ["A", "B", "C", "D"], correctIndex, "explanation citing the rule")`. Choices are shuffled in the app, so avoid "all/none of the above". Numeric choice sets are shown in ascending order.
-- **Edit notes:** `data/units-*.js`. **Flashcards:** `data/glossary.js`. **Roadmap:** `data/roadmap.js`. **Math generators:** `data/math.js`.
-- Run `node tests/validate.mjs` before opening a pull request.
+Corrections are especially welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
 - Code: [MIT](LICENSE)
 - Study content (notes, questions, flashcards): [CC BY 4.0](LICENSE-CONTENT)
+- Fonts: Inter and Fraunces, [SIL Open Font License 1.1](fonts/)

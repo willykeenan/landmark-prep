@@ -1,4 +1,4 @@
-// Content and logic checks for NY Real Estate Prep. Run: node tests/validate.mjs
+// Content and logic checks for Landmark Prep. Run: node tests/validate.mjs
 // Loads the data files the same way the browser does (as classic scripts on `window`).
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -6,7 +6,18 @@ import { dirname, join } from "node:path";
 import vm from "node:vm";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const files = ["units-a", "units-b", "units-c", "questions-a", "questions-b", "questions-c", "glossary", "roadmap", "math", "exam-plan"];
+const files = ["units-a", "units-b", "units-c", "questions-a", "questions-b", "questions-c", "national-units", "national-questions-a", "national-questions-b", "states", "legal", "glossary", "roadmap", "math", "exam-plan"];
+// Data files are content, not code. A vm context is not a security boundary, so refuse
+// anything that could reach the host (this is how a generated file once faked a passing check).
+const CODE_SMELL = /constructor\s*\.\s*constructor|\bFunction\s*\(|\beval\s*\(|\brequire\s*\(|\bimport\s*\(|globalThis|\bprocess\.[A-Za-z_]|\bconsole\.[A-Za-z_]|\bfetch\s*\(|XMLHttpRequest|\bdocument\.[A-Za-z_]|localStorage|\bwindow\.(?!NYRE\b)[A-Za-z_]/;
+for (const f of files) {
+  const src = readFileSync(join(root, "data", f + ".js"), "utf8");
+  const hit = src.match(CODE_SMELL);
+  if (hit) {
+    console.error(`FAIL data/${f}.js contains code that data files must not: ${hit[0]}`);
+    process.exit(1);
+  }
+}
 const ctx = { window: {}, Math, Number, Object, Array, String, isFinite };
 vm.createContext(ctx);
 for (const f of files) vm.runInContext(readFileSync(join(root, "data", f + ".js"), "utf8"), ctx, { filename: f + ".js" });
@@ -37,9 +48,18 @@ check("19 units matching the official syllabus hours (77 total)", () => {
   assert(total === 77, "hours total " + total);
 });
 
+check("11 national-core units, ids 101-111, with no New York law", () => {
+  const u = [...N.nationalUnits].sort((a, b) => a.id - b.id);
+  assert(u.length === 11, "expected 11 national units, got " + u.length);
+  u.forEach((x, i) => assert(x.id === 101 + i, "national unit id gap at " + (101 + i)));
+  const NY = /New York|\bNYS?\b|\bNYC\b|NYCRR|\bRPL\b|Article 12-A/;
+  for (const x of u) assert(!NY.test(JSON.stringify(x)), "New York law in national unit " + x.id);
+  return u.reduce((s, x) => s + x.hours, 0) + " study hours";
+});
+
 check("every unit has an intro, sections with bullets, and well-formed tables", () => {
   let bullets = 0;
-  for (const u of N.units) {
+  for (const u of N.units.concat(N.nationalUnits)) {
     assert(u.title && u.intro, "unit " + u.id + " missing title/intro");
     assert(Array.isArray(u.sections) && u.sections.length >= 2, "unit " + u.id + " needs 2+ sections");
     for (const s of u.sections) {
@@ -53,7 +73,7 @@ check("every unit has an intro, sections with bullets, and well-formed tables", 
 
 check("bold markup is balanced in every string", () => {
   const strings = [];
-  for (const u of N.units) {
+  for (const u of N.units.concat(N.nationalUnits)) {
     strings.push(u.intro, ...(u.traps || []));
     u.sections.forEach((s) => strings.push(s.h, ...s.b));
     (u.numbers || []).forEach((n) => strings.push(n[0], n[1]));
@@ -66,7 +86,7 @@ check("question bank is well-formed", () => {
   const seen = new Set();
   for (const q of N.questions) {
     const where = `u${q.u}: ${q.q.slice(0, 60)}`;
-    assert(Number.isInteger(q.u) && q.u >= 1 && q.u <= 19, "bad unit " + where);
+    assert(Number.isInteger(q.u) && ((q.u >= 1 && q.u <= 19) || (q.u >= 101 && q.u <= 111)), "bad unit " + where);
     assert(q.q.trim().length > 10, "short stem " + where);
     assert(Array.isArray(q.c) && q.c.length === 4, "need 4 choices " + where);
     assert(new Set(q.c.map((c) => c.trim().toLowerCase())).size === 4, "duplicate choices " + where);
@@ -101,6 +121,39 @@ check("answer positions are balanced in the source data (non-numeric sets)", () 
   N.questions.forEach((q) => { if (!q.c.every(num)) { pos[q.a]++; n++; } });
   pos.forEach((p, i) => assert(p / n > 0.18 && p / n < 0.32, `position ${"ABCD"[i]} is ${(100 * p / n).toFixed(0)}%`));
   return "A/B/C/D = " + pos.join("/");
+});
+
+check("state facts cover 50 states + DC with official links", () => {
+  const S = N.states;
+  assert(S.length === 51 && new Set(S.map((s) => s.code)).size === 51, "need 51 unique state codes");
+  for (const s of S) {
+    assert(/^https:\/\//.test(s.url), s.code + " needs an https regulator link");
+    assert(s.verified === null || /^\d{4}-\d{2}(-\d{2})?$/.test(s.verified), s.code + " verified must be null or a date");
+    assert(s.prelicenseHours === null || (Number.isInteger(s.prelicenseHours) && s.prelicenseHours > 0), s.code + " bad hours");
+    // No number is shown without the official quote it came from.
+    for (const k of ["prelicenseHours", "examVendor", "nationalQuestions", "stateQuestions", "passingScore"]) {
+      if (s[k] === null || s[k] === undefined) continue;
+      const e = (s.evidence || {})[k];
+      assert(e && /^https:\/\//.test(e.url) && e.quote && e.quote.length >= 12, `${s.code}.${k} is shown without an official quote`);
+      if (k !== "examVendor" && k !== "passingScore") {
+        const d = String(s[k]);
+        // Hours may be the sum of several quoted courses ("30-hour ... 30-hour" = 60).
+        const hourParts = (e.quote.match(/\d+(?=\s*-?\s*(?:clock\s+|class\s+)?hours?\b)/gi) || []).map(Number);
+        const partsSum = hourParts.reduce((a, b) => a + b, 0);
+        assert(new RegExp("(^|\\D)" + d + "(\\D|$)").test(e.quote) || (k === "prelicenseHours" && partsSum === Number(d)), `${s.code}.${k}=${s[k]} not supported by its quote`);
+      }
+    }
+  }
+  return S.filter((s) => s.verified).length + " states with quoted facts";
+});
+
+check("legal pages exist with a contact address and no placeholders", () => {
+  for (const id of ["terms", "privacy", "refunds"]) {
+    const p = N.legal[id];
+    assert(p && p.title && p.md.length > 1500, id + " missing or short");
+    assert(!/\{\{|TODO|lorem/i.test(p.md), id + " has a placeholder");
+    assert(p.md.includes("@"), id + " has no contact address");
+  }
 });
 
 check("glossary is well-formed with no duplicate terms", () => {

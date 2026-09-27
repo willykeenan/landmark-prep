@@ -1,4 +1,4 @@
-/* NY Real Estate Prep — flashcard glossary built from the syllabus "Key Terms" lists.
+/* Landmark Prep, New York course — flashcard glossary built from the syllabus "Key Terms" lists.
  * G(unit, term, definition). */
 (function (NYRE) {
   NYRE.glossary = NYRE.glossary || [];

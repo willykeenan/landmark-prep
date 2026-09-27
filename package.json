@@ -1,8 +1,8 @@
 {
-  "name": "ny-real-estate-prep",
+  "name": "landmark-prep",
   "version": "1.0.0",
   "private": true,
-  "description": "Free, open-source study kit for the New York real estate salesperson exam.",
+  "description": "Free, open-source real estate license exam prep: the full New York course plus the national exam core and quote-verified licensing facts for every state.",
   "scripts": {
     "test": "node tests/validate.mjs",
     "e2e": "python3 tests/e2e.py",

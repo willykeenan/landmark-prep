@@ -1,4 +1,4 @@
-/* NY Real Estate Prep — study notes, units 6–12. */
+/* Landmark Prep, New York course — study notes, units 6–12. */
 (function (NYRE) {
   NYRE.units = NYRE.units || [];
   NYRE.units.push(

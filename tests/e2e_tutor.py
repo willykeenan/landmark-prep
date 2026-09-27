@@ -55,7 +55,7 @@ class Site(SimpleHTTPRequestHandler):
         if self.path.startswith("/api/history"):
             return self._proxy("/history")
         if self.path in ("/", "/index.html"):
-            html = (ROOT / "index.html").read_text().replace('<html lang="en">', '<html lang="en" data-tutor-api="/api" data-logout="/logout" data-no-sw>')
+            html = (ROOT / "index.html").read_text().replace('<html lang="en">', '<html lang="en" data-tutor-api="/api" data-logout="/logout" data-default-state="NY" data-no-sw>')
             b = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")

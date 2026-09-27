@@ -1,10 +1,12 @@
-/* Offline cache for NY Real Estate Prep. Bump VERSION when files change. */
-var VERSION = "nyre-v1";
+/* Offline cache for Landmark Prep. Bump VERSION when files change. */
+var VERSION = "landmark-v3";
 var FILES = [
   "./", "index.html", "styles.css", "app.js", "manifest.webmanifest",
   "data/units-a.js", "data/units-b.js", "data/units-c.js",
   "data/questions-a.js", "data/questions-b.js", "data/questions-c.js",
-  "data/glossary.js", "data/roadmap.js", "data/math.js", "data/exam-plan.js"
+  "data/glossary.js", "data/roadmap.js", "data/math.js", "data/exam-plan.js",
+  "data/national-units.js", "data/national-questions-a.js", "data/national-questions-b.js", "data/states.js", "data/legal.js",
+  "fonts/inter-latin.woff2", "fonts/fraunces-latin.woff2", "fonts/fraunces-italic-latin.woff2"
 ];
 self.addEventListener("install", function (e) {
   e.waitUntil(caches.open(VERSION).then(function (c) { return c.addAll(FILES); }).then(function () { return self.skipWaiting(); }));

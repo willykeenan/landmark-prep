@@ -1,4 +1,4 @@
-/* NY Real Estate Prep — the licensing roadmap. Facts checked against dos.ny.gov in Sept 2026.
+/* Landmark Prep, New York course — the licensing roadmap. Facts checked against dos.ny.gov in Sept 2026.
  * Fees and providers change; every step links to the official source. */
 (function (NYRE) {
   NYRE.roadmap = {
