@@ -130,6 +130,29 @@ class TutorTest(unittest.TestCase):
         self.assertEqual(T.load_env(Path(f.name))["TUTOR_TOKEN"], "abc")
         os.unlink(f.name)
 
+    def test_launchd_style_environment_still_finds_the_login(self):
+        # launchd jobs run without USER/LOGNAME and without ~/.local/bin on PATH; the CLI needs
+        # USER to find its Keychain login, so the model env must fill it in.
+        saved = {k: os.environ.pop(k, None) for k in ("USER", "LOGNAME")}
+        try:
+            env = T.Model(T.Config(None))._env()
+        finally:
+            for k, v in saved.items():
+                if v is not None:
+                    os.environ[k] = v
+        self.assertTrue(env.get("USER"))
+        self.assertEqual(env["USER"], env["LOGNAME"])
+        self.assertNotIn("ANTHROPIC_API_KEY", env)
+
+    def test_claude_binary_lookup_skips_missing_paths(self):
+        with tempfile.TemporaryDirectory() as d:
+            fake = Path(d) / "claude"
+            fake.write_text("#!/bin/sh\n")
+            fake.chmod(0o755)
+            self.assertEqual(T.find_claude(str(fake)), str(fake))
+            if T.shutil.which("claude") or os.path.exists(os.path.expanduser("~/.local/bin/claude")):
+                self.assertNotEqual(T.find_claude("/definitely/not/here/claude"), "/definitely/not/here/claude")
+
     def test_real_model_command_is_tool_free(self):
         # Inspect the exact argv used for Claude: no tools, no MCP, no settings/hooks.
         captured = {}

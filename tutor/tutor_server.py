@@ -21,6 +21,7 @@ Python 3.9+ standard library only.
 from __future__ import annotations
 
 import argparse
+import getpass
 import hmac
 import json
 import os
@@ -57,6 +58,18 @@ def load_env(path: Path) -> dict:
     return env
 
 
+def find_claude(configured: str) -> str:
+    """The claude CLI moves between installs (Homebrew, the native installer's ~/.local/bin),
+    and launchd's PATH does not include ~/.local/bin, so check the usual places."""
+    candidates = [os.path.expanduser(configured)] if configured else []
+    candidates += [shutil.which("claude") or "", os.path.expanduser("~/.local/bin/claude"),
+                   "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
+    for c in candidates:
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return configured or "claude"
+
+
 class Config:
     def __init__(self, env_file: Path | None):
         e = dict(os.environ)
@@ -68,7 +81,7 @@ class Config:
         self.data_dir = Path(os.path.expanduser(e.get("TUTOR_DATA_DIR", str(HERE / "data"))))
         self.model = e.get("TUTOR_MODEL", "claude-sonnet-5")
         self.brain_model = e.get("TUTOR_BRAIN_MODEL", self.model)
-        self.claude_bin = e.get("CLAUDE_BIN") or shutil.which("claude") or "/opt/homebrew/bin/claude"
+        self.claude_bin = find_claude(e.get("CLAUDE_BIN", ""))
         self.knowledge_file = Path(os.path.expanduser(e.get("TUTOR_KNOWLEDGE", str(HERE / "knowledge.md"))))
         self.timeout = int(e.get("TUTOR_TIMEOUT", "110"))
         self.per_hour = int(e.get("TUTOR_LIMIT_PER_HOUR", "60"))
@@ -278,6 +291,11 @@ class Model:
     def _env(self):
         env = {k: v for k, v in os.environ.items() if k in ("HOME", "USER", "LOGNAME", "PATH", "LANG", "TMPDIR", "SHELL")}
         env.setdefault("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+        # The CLI finds its login in the Keychain by account name; launchd jobs do not set USER.
+        name = getpass.getuser()
+        env.setdefault("USER", name)
+        env.setdefault("LOGNAME", name)
+        env.setdefault("HOME", os.path.expanduser("~"))
         # Never let a stray API key switch billing away from the CLI's own login.
         env.pop("ANTHROPIC_API_KEY", None)
         return env
