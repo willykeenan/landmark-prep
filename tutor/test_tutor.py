@@ -159,8 +159,11 @@ class TutorTest(unittest.TestCase):
         orig = T.subprocess.run
 
         def fake_run(cmd, **kw):
-            captured["cmd"] = cmd
-            captured["cwd"] = kw.get("cwd")
+            # Earlier tests can leave a brain-rewrite thread running on the fake model; only
+            # record the real Claude argv, not a stray shell string from another thread.
+            if isinstance(cmd, list) and "--tools" in cmd:
+                captured["cmd"] = cmd
+                captured["cwd"] = kw.get("cwd")
             class P:
                 returncode = 0
                 stdout = json.dumps({"result": "ok", "is_error": False})
