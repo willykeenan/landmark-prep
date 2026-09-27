@@ -1,0 +1,6 @@
+tests/results.json
+__pycache__/
+.DS_Store
+node_modules/
+tutor/data/
+*.env

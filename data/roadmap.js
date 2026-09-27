@@ -1,0 +1,103 @@
+/* NY Real Estate Prep — the licensing roadmap. Facts checked against dos.ny.gov in Sept 2026.
+ * Fees and providers change; every step links to the official source. */
+(function (NYRE) {
+  NYRE.roadmap = {
+    checkedOn: "September 2026",
+    steps: [
+      {
+        id: "eligible",
+        title: "Check that you're eligible",
+        cost: "$0",
+        body: [
+          "You must be **over 18**.",
+          "To be licensed you need a **current New York State DMV photo driver's license or non-driver ID** (DOS pulls your pocket-card photo from DMV). If you only have an out-of-state license, get a NY non-driver ID or license from the DMV before you apply for the license. You can still take the exam with other government photo ID.",
+          "A criminal record is **not an automatic bar**. DOS reviews it case by case (Correction Law Article 23-A). The application asks about it, so answer honestly.",
+        ],
+        links: [["DOS: Become a Real Estate Salesperson", "https://dos.ny.gov/real-estate-agent"]],
+      },
+      {
+        id: "course",
+        title: "Take the 77-hour course (it can be free)",
+        cost: "$0–$500+",
+        body: [
+          "The license law requires **77 hours from a DOS-approved school**. Only an approved school can issue the completion certificate, so there's no way around this step. Every approved school teaches the **same state syllabus**.",
+          "**Free option:** as of September 2026, **LearnCycle**, a school on the DOS approved list, offers the full 77-hour course **free** (its \"License Essentials\" tier). Paid add-ons are optional.",
+          "Other approved online schools typically charge **$99–$300**. Classroom programs can cost $400+.",
+          "Online courses must be **finished within 12 months** of starting (19 NYCRR 176.25). For classroom courses you can miss **no more than 10%** of the time.",
+          "Some brokerages reimburse course costs for new agents, so ask when you interview.",
+        ],
+        links: [
+          ["DOS: approved qualifying schools", "https://dos.ny.gov/real-estate-course-providers"],
+          ["LearnCycle NY pre-licensing (free tier)", "https://learncycle.com/real-estate/new-york/pre-licensing"],
+          ["Official 77-hour syllabus", "https://dos.ny.gov/real-estate-salesperson-77-hour-curriculum-eff-12212022"],
+        ],
+      },
+      {
+        id: "final",
+        title: "Pass the school's final exam (proctored, in person)",
+        cost: "$0–$54",
+        body: [
+          "Online courses end with a **proctored final exam at a DOS-approved location in New York** (19 NYCRR 176.23). Webcam-only proctoring isn't accepted for this exam.",
+          "**Ask your school which proctors qualify**, then **call your local public library first**, since many proctor for free. Private proctors usually charge about $25–$54.",
+          "Failing the final means failing the course. Schools may offer a make-up exam, so check the retake policy before you start.",
+          "When you pass, the school gives you a signed, sealed **certificate of completion**. Keep it (and a scan). The school also keeps your completion records on file.",
+        ],
+        links: [],
+      },
+      {
+        id: "schedule",
+        title: "Schedule the state exam on eAccessNY",
+        cost: "$15",
+        body: [
+          "Create an **eAccessNY** account and choose **Apply to Take an Exam**. The fee is **$15** per attempt.",
+          "**Format:** multiple choice, based on the 77-hour syllabus, with **90 minutes** to finish. Schools report it as **75 questions with a 70% pass mark** (53 correct). DOS reports only **pass/fail**.",
+          "**Bring:** a **current (unexpired) government photo ID** (driver's license, state ID, IDNYC, passport, etc.) and the **\"Summary of Your Submission\"** page you printed when scheduling.",
+          "**Calculators** are allowed if they're silent, battery or solar powered, non-printing, and have no alphabet keyboard. **No one is admitted after the start time.** No food, bags or phones in use.",
+          "**NYC exam site:** 123 William Street, 2nd Floor, New York, NY 10038. You can reschedule up to 6 days before your exam date.",
+        ],
+        links: [
+          ["eAccessNY (schedule the exam / apply)", "https://appext20.dos.ny.gov/nydos/selSearchType.do"],
+          ["DOS exam sites", "https://dos.ny.gov/real-estate-salesperson-exam-sites"],
+        ],
+      },
+      {
+        id: "pass",
+        title: "Pass, then find a sponsoring broker",
+        cost: "$0",
+        body: [
+          "Results show up in eAccessNY. A passing result is **valid for 2 years**. If you fail, you can schedule another attempt.",
+          "You can't get the license without a **sponsoring broker**. Interview a few: ask about training, splits, desk fees, whether they reimburse courses, and what kind of deals they do (NYC rentals vs sales).",
+        ],
+        links: [],
+      },
+      {
+        id: "apply",
+        title: "Apply for the license",
+        cost: "$65",
+        body: [
+          "Apply online in **eAccessNY** after you pass. The fee is **$65** ($55 plus a $10 fair-housing surcharge) and is **non-refundable**.",
+          "Your **sponsoring broker must log in and authorize** the application.",
+          "Once approved, the license is mailed to the broker's business address. Your pocket card uses your DMV photo.",
+        ],
+        links: [["DOS: salesperson FAQ", "https://dos.ny.gov/real-estate-salesperson-frequently-asked-questions"]],
+      },
+      {
+        id: "after",
+        title: "After you're licensed",
+        cost: "$65 every 2 years",
+        body: [
+          "The license lasts **2 years**. Renewal requires **22.5 hours of continuing education**, including **2 hours of agency in your first term**.",
+          "Give the **agency disclosure** (RPL §443) and the **Housing & Anti-Discrimination Disclosure** (DOS-2156) at first substantive contact. Keep acknowledgments for 3 years.",
+          "Optional costs come later: REALTOR association and MLS dues, desk fees, E&O insurance. Ask your broker what's required.",
+        ],
+        links: [["NY Real Estate License Law (PDF, March 2026)", "https://dos.ny.gov/system/files/documents/2026/03/real-estate-license-law_03.2026.pdf"]],
+      },
+    ],
+    minimumCost: [
+      ["77-hour course (free tier)", 0],
+      ["Course final proctoring (free at many libraries)", 0],
+      ["State exam", 15],
+      ["License application", 65],
+    ],
+  };
+})((window.NYRE = window.NYRE || {}));
