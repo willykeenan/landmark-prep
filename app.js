@@ -15,12 +15,14 @@
   //   data-no-sw                 → skip the offline service worker
   //   data-default-palette="blush" → starting color theme for a private deployment
   //   data-user-name="Sam"       → greets the signed-in student by name
+  //   data-default-ai="claude"   → which assistant the "Ask" buttons open (default ChatGPT)
   // With data-tutor-api set, study progress also syncs to the student's account ({base}/state).
   var TUTOR_API = ROOT.getAttribute("data-tutor-api");
   var LOGOUT = ROOT.getAttribute("data-logout");
   var DEFAULT_STATE = ROOT.getAttribute("data-default-state");
   var DEFAULT_PALETTE = ROOT.getAttribute("data-default-palette") || "classic";
   var USER_NAME = ROOT.getAttribute("data-user-name");
+  var DEFAULT_AI = ROOT.getAttribute("data-default-ai") || "chatgpt";
 
   /* ---------- helpers ---------- */
   function hash(s) {
@@ -95,7 +97,7 @@
   function save(k) { store.set(k, P[k]); }
 
   /* ---------- sync (hosted builds): progress follows the student across devices ---------- */
-  var SYNC_KEYS = ["q", "cards", "exams", "road", "read", "state", "plan", "palette"];
+  var SYNC_KEYS = ["q", "cards", "exams", "road", "read", "state", "plan", "palette", "ai"];
   var SYNC_DEFAULTS = { q: {}, cards: {}, exams: [], road: {}, read: {}, state: DEFAULT_STATE || null, plan: {} };
   var sync = { on: !!TUTOR_API, timer: null, quiet: false, status: "local", at: 0 };
   function onStoreSet(k) {
@@ -124,7 +126,7 @@
           // Another device saved more recently: take its copy.
           sync.quiet = true;
           SYNC_KEYS.forEach(function (k) {
-            if (k === "palette") { if (j.data.palette) store.set("palette", j.data.palette); return; }
+            if (k === "palette" || k === "ai") { if (j.data[k]) store.set(k, j.data[k]); return; }
             var v = j.data[k] !== undefined ? j.data[k] : SYNC_DEFAULTS[k];
             store.set(k, v); P[k] = v;
           });
@@ -231,6 +233,66 @@
     if (meta) meta.setAttribute("content", pal.meta);
   }
   applyPalette(store.get("palette", DEFAULT_PALETTE));
+
+  /* ---------- Work alongside ChatGPT or Claude ----------
+   * The "Ask" buttons open the student's own ChatGPT or Claude with a ready-made prompt, so they use
+   * their own plan and we never handle their AI account. ChatGPT sends ?q= straight away; Claude
+   * fills it in, and we also copy the prompt in case it doesn't. */
+  var AIS = {
+    chatgpt: { name: "ChatGPT", url: function (q) { return "https://chatgpt.com/?q=" + encodeURIComponent(q); } },
+    claude: { name: "Claude", url: function (q) { return "https://claude.ai/new?q=" + encodeURIComponent(q); } },
+  };
+  function aiPref() { var a = store.get("ai", DEFAULT_AI); return AIS[a] ? a : "chatgpt"; }
+  function aiName() { return AIS[aiPref()].name; }
+  function examName() {
+    if (track() === "ny") return "New York real estate salesperson exam";
+    return P.state ? stateName(P.state) + " real estate salesperson exam (the national portion)" : "real estate salesperson license exam";
+  }
+  function clip(t, n) { t = String(t); return t.length > n ? t.slice(0, n - 1) + "\u2026" : t; }
+  function aiLink(label, prompt, cls) {
+    prompt = clip(prompt, 1800);
+    return '<a class="btn ' + (cls || "") + ' ai-btn" href="' + esc(AIS[aiPref()].url(prompt)) + '" target="_blank" rel="noopener" data-ai-prompt="' + esc(prompt) + '">' +
+      esc(label.replace("{ai}", aiName())) + " \u2197</a>";
+  }
+  document.addEventListener("click", function (e) {
+    var a = e.target.closest && e.target.closest(".ai-btn");
+    if (!a || aiPref() !== "claude" || !navigator.clipboard) return;
+    navigator.clipboard.writeText(a.getAttribute("data-ai-prompt")).catch(function () {});
+  });
+  function promptQuestion(q, pickedText) {
+    var correct = q.c[q.a];
+    return "I'm studying for the " + examName() + ". Help me understand this practice question.\n\n" +
+      "Question: " + q.q + "\nChoices:\n" + q.c.map(function (c, i) { return LETTERS[i] + ") " + c; }).join("\n") +
+      "\nCorrect answer: " + correct + (pickedText && pickedText !== correct ? "\nI picked: " + pickedText : "") +
+      "\n\nExplain why the correct answer is right and why the others are wrong, give me a memory trick, then ask me one similar question and wait for my answer.";
+  }
+  function promptUnit(u) {
+    return "I'm studying for the " + examName() + '. Teach me the topic "' + u.title + '". Start with the key rules, the numbers to memorize and the common exam traps, in short bullets. ' +
+      "Then quiz me one multiple-choice question at a time and wait for my answer before explaining.\n\nMy study notes cover: " + u.sections.map(function (x) { return x.h; }).join("; ") + ".";
+  }
+  function promptStep(s) {
+    return "I'm working toward my " + (P.state ? stateName(P.state) + " " : "") + "real estate salesperson license. My next step is: " + s.title + ". " + stepNext(s) +
+      "\n\nWalk me through exactly how to do this: what to prepare, the order of steps, costs, and common mistakes. Ask me anything you need to tailor it to my situation." +
+      (track() === "ny" ? " Stick to official sources (dos.ny.gov, dmv.ny.gov) and tell me when something should be double-checked there." : "");
+  }
+  function promptWeakSpots() {
+    var ranked = unitsFor(track()).map(function (u) { return { u: u, st: unitStats(u.id) }; })
+      .filter(function (x) { return x.st.seen > 0; })
+      .sort(function (a, b) { return (a.st.lastAcc || 0) - (b.st.lastAcc || 0); }).slice(0, 3);
+    if (!ranked.length) {
+      return "I'm starting to study for the " + examName() + ". Give me a quick overview of what the exam covers, then quiz me with 5 mixed multiple-choice questions, one at a time, waiting for my answer each time.";
+    }
+    return "I'm studying for the " + examName() + ". My weakest topics right now: " +
+      ranked.map(function (x) { return shortTitle(x.u.title) + " (" + Math.round((x.st.lastAcc || 0) * 100) + "% on my latest tries)"; }).join(", ") +
+      ". Quiz me on these, one multiple-choice question at a time. Wait for my answer, explain briefly, and keep a running score.";
+  }
+  function promptMisses(items) {
+    return "I'm studying for the " + examName() + ". I missed these questions on a practice exam. For each one, explain the rule behind the correct answer in plain words. Then quiz me on similar questions, one at a time.\n\n" +
+      items.slice(0, 6).map(function (q, i) { return (i + 1) + ". " + clip(q.q, 220) + " (Correct: " + clip(q.c[q.a], 120) + ")"; }).join("\n");
+  }
+  function promptTerm(g) {
+    return "I'm studying for the " + examName() + '. Explain the term "' + g.t + '" simply (my notes say: ' + clip(g.d, 300) + "). Give me a real-life example and a memory trick, then quiz me on it with one question.";
+  }
   document.getElementById("stateBtn").addEventListener("click", function () { openStatePicker(); });
 
   /* ---------- state picker (dialog) ---------- */
@@ -372,9 +434,8 @@
       "<div><b>Drill the math weekly</b><span>Unlimited fresh problems until every formula is automatic.</span></div>" +
       "<div><b>Mock exams in the final 2 weeks</b><span>Then drill your misses. Book the real exam once you score 80%+ consistently.</span></div>" +
       "</div>" +
-      (TUTOR_API
-        ? '<div class="banner" style="margin-top:22px"><div><strong>Your tutor is ready.</strong> <span class="muted">Ask it anything, from a rule you forgot to a plan for this week. It remembers your sessions and knows where you are on your path.</span></div><a class="btn dark" href="#/tutor">Ask your tutor</a></div>'
-        : '<div class="banner" style="margin-top:22px"><div><strong>Coming soon: a personal AI tutor</strong> <span class="muted">that remembers what you\'ve studied and quizzes your weak spots. $34.99/month, cancel anytime.</span></div><a class="btn dark" href="#/pricing">See the plan</a></div>')
+      '<div class="banner ai-banner" style="margin-top:22px"><div><strong>Study with ' + esc(aiName()) + ".</strong> <span class=\"muted\">Every question, topic and step has a button that opens your own " + esc(aiName()) + " with everything it needs to help, on your own plan. Pick ChatGPT or Claude in Settings.</span></div>" +
+        '<div class="row">' + aiLink("Quiz me on my weak spots", promptWeakSpots(), "dark") + (TUTOR_API ? '<a class="btn" href="#/tutor">Ask your tutor</a>' : "") + "</div></div>"
     );
     on("#heroState", "click", function () { openStatePicker(); });
     bindNudge();
@@ -417,6 +478,7 @@
     return '<section class="card journey' + (USER_NAME ? " top" : "") + '" aria-labelledby="jTitle"><span class="eyebrow">' + (USER_NAME ? "Hi " + esc(USER_NAME) + " · your next step · " : "Your next step · ") + (done + 1) + " of " + steps.length + "</span>" + bar +
       '<h2 id="jTitle">' + esc(s.title) + "</h2><p>" + esc(stepNext(s)) + "</p>" +
       '<div class="row">' + (act ? '<a class="btn primary" href="' + esc(act[1]) + '" target="_blank" rel="noopener">' + esc(act[0]) + " \u2197</a>" : "") +
+      aiLink("Help me with this in {ai}", promptStep(s)) +
       '<button class="btn" type="button" data-jdone="' + esc(s.id) + '">Mark this done</button><a class="btn ghost" href="#/roadmap">See every step</a></div>' +
       planRow + (then ? '<p class="small muted jthen">Then: ' + esc(then.title) + "</p>" : "") + "</section>";
   }
@@ -555,6 +617,7 @@
       (qn ? '<a class="btn primary" href="#/practice/unit/' + u.id + '">Practice ' + plural(qn, "question") + "</a>" : "") +
       (u.id === 10 || u.id === 111 ? '<a class="btn" href="#/math">Math drills</a>' : "") +
       (gn ? '<a class="btn" href="#/cards/unit/' + u.id + '">' + plural(gn, "flashcard") + "</a>" : "") +
+      aiLink("Study this with {ai}", promptUnit(u)) +
       (TUTOR_API ? '<a class="btn" href="#/tutor/unit/' + u.id + '">Ask the tutor</a>' : "") +
       '<button class="btn" id="readBtn" type="button">' + (P.read[u.id] ? "✓ Marked read" : "Mark as read") + "</button></div></div></section>" +
       '<div class="unitlayout"><nav class="toc" aria-label="On this page"><span class="eyebrow">On this page</span>' +
@@ -635,7 +698,7 @@
           (flipped
             ? '<button class="btn danger lg" id="miss">Missed it <span class="muted small">1</span></button><button class="btn primary lg" id="got">Knew it <span class="small">2</span></button>'
             : '<button class="btn primary lg" id="flip">Show definition</button>') +
-          "</div>");
+          "</div>" + (flipped ? '<p class="ask center">' + aiLink("Explain this term with {ai}", promptTerm(g), "sm ghost") + "</p>" : ""));
         on("#flash", "click", flip);
         on("#flash", "keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(); } });
         on("#flip", "click", flip);
@@ -699,7 +762,9 @@
       }).join("") + "</div>";
     if (reveal) {
       var ok = pickedPos === item.correct;
-      html += '<div class="feedback ' + (ok ? "right" : "wrong") + '" aria-live="polite"><span class="verdict">' + (ok ? "Correct." : "Not quite. The answer is " + LETTERS[item.correct] + ".") + "</span> " + esc(q.e) + "</div>";
+      var pickedText = pickedPos >= 0 && pickedPos < item.order.length ? q.c[item.order[pickedPos]] : "";
+      html += '<div class="feedback ' + (ok ? "right" : "wrong") + '" aria-live="polite"><span class="verdict">' + (ok ? "Correct." : "Not quite. The answer is " + LETTERS[item.correct] + ".") + "</span> " + esc(q.e) +
+        '<div class="ask no-print">' + aiLink("Go deeper with {ai}", promptQuestion(q, pickedText), "sm") + "</div></div>";
     }
     return html + "</div>";
   }
@@ -964,7 +1029,11 @@
         '<div class="card result qcard"><span class="pill ' + (passed ? "good" : "bad") + '">' + (passed ? "Pass" : "Not yet") + "</span>" +
         '<span class="big">' + score + " / " + result.total + "</span>" +
         '<p class="muted">' + p + "% · " + (timeUp ? "time expired" : "finished in " + fmtTime(result.time)) + " · passing is " + Math.ceil(result.total * passRate) + " correct</p>" +
-        '<div class="row" style="justify-content:center"><a class="btn primary" href="#/practice/missed">Drill missed questions</a><button class="btn" id="again">New exam</button></div></div>' +
+        '<div class="row" style="justify-content:center"><a class="btn primary" href="#/practice/missed">Drill missed questions</a>' +
+        (function () {
+          var misses = finished.items.filter(function (it) { return it.pick !== it.correct; }).map(function (it) { return QBY[it.id]; }).filter(Boolean);
+          return misses.length ? aiLink("Go over my misses with {ai}", promptMisses(misses)) : "";
+        })() + '<button class="btn" id="again">New exam</button></div></div>' +
         '<div class="card qcard"><h2>By topic, weakest first</h2><div class="unitbars">' +
         weak.map(function (u) {
           var r = units[u], up = pct(r[0], r[1]);
@@ -1030,19 +1099,19 @@
 
   /* ---- Pricing ---- */
   VIEWS.pricing = function () {
-    render(pagehead("Plans", "Free to study. A tutor when you want one.", "Everything you need to study is free and stays free. The Tutor plan adds a personal AI tutor that remembers you.") +
+    render(pagehead("Plans", "Free, and it works with your AI.", "Everything here is free and open source. For a personal tutor, use the ChatGPT or Claude you already have: every question, topic and step has a button that opens it with everything it needs.") +
       '<div class="pricing">' +
       '<div class="plancard"><span class="eyebrow">Free</span><h2>Study</h2><div class="price">$0</div><p class="muted">No account, no card.</p><ul>' +
-      "<li>Study notes for every topic</li><li>" + (questionsFor("ny").length + questionsFor("us").length) + "+ practice questions with explanations</li><li>Adaptive flashcards</li><li>Timed mock exams with full review</li><li>Unlimited math drills</li><li>Your state's licensing roadmap</li></ul>" +
+      "<li>Study notes for every topic</li><li>" + (questionsFor("ny").length + questionsFor("us").length) + "+ practice questions with explanations</li><li>Adaptive flashcards</li><li>Timed mock exams with full review</li><li>Unlimited math drills</li><li>Your state's licensing path, one step at a time</li></ul>" +
       '<a class="btn" href="#/study">Start studying</a></div>' +
-      '<div class="plancard pro"><span class="eyebrow">Tutor plan</span><h2>Study with a tutor</h2><div class="price">$34.99<small> / month</small></div><p class="muted">Cancel anytime.</p><ul>' +
-      "<li>A personal AI tutor, any hour</li><li>Remembers your goals, exam date and weak spots</li><li>Quizzes you on what you keep missing</li><li>Explains any question in plain English</li><li>Your progress synced across devices</li></ul>" +
-      '<button class="btn primary" type="button" disabled>Coming soon</button></div></div>' +
+      '<div class="plancard pro"><span class="eyebrow">Your AI</span><h2>Study with ChatGPT or Claude</h2><div class="price">Your plan</div><p class="muted">Free or paid, whichever you use.</p><ul>' +
+      "<li>Go deeper on any question you miss</li><li>Get taught any topic, then quizzed</li><li>Get walked through each licensing step</li><li>Quizzed on your weakest topics</li><li>We never see your AI account</li></ul>" +
+      '<a class="btn primary" href="#/settings">Choose ChatGPT or Claude</a></div></div>' +
       '<div class="faq narrow" style="margin-top:30px"><h2>Questions</h2>' +
       "<details><summary>Is Landmark Prep a pre-licensing school?</summary><p>No. Every state requires pre-licensing education from a school it approves, and only that school's certificate counts. Landmark Prep is exam prep and study help to use alongside your course. It is not affiliated with any state real estate commission.</p></details>" +
-      "<details><summary>Is the free version really free?</summary><p>Yes. The study notes, questions, flashcards, mock exams and roadmap are free and open source. The Tutor plan is optional.</p></details>" +
-      "<details><summary>Which states are covered?</summary><p>New York has a complete state course. Every other state gets the national exam core, which is typically the larger section of the exam, plus your state's official requirements. State-law notes for more states are coming.</p></details>" +
-      "<details><summary>Can I cancel the Tutor plan?</summary><p>Anytime. You keep access until the end of the month you paid for.</p></details></div>");
+      "<details><summary>Is it really free?</summary><p>Yes. The study notes, questions, flashcards, mock exams and licensing path are free and open source. The AI help runs in your own ChatGPT or Claude, on whatever plan you already have.</p></details>" +
+      "<details><summary>How does the ChatGPT or Claude button work?</summary><p>It opens a new chat in your own account with a prompt that already includes the question, topic or step you're on. Nothing is sent to us, and we can't see your chats.</p></details>" +
+      "<details><summary>Which states are covered?</summary><p>New York has a complete state course. Every other state gets the national exam core, which is typically the larger section of the exam, plus your state's official requirements. State-law notes for more states are coming.</p></details></div>");
   };
 
   /* ---- Tutor (hosted builds only) ---- */
@@ -1168,11 +1237,17 @@
       [["auto", "Match my device"], ["light", "Light"], ["dark", "Dark"]].map(function (o) {
         return '<button type="button" class="chip" role="radio" aria-checked="' + (o[0] === th) + '" aria-pressed="' + (o[0] === th) + '" data-mode-opt="' + o[0] + '">' + o[1] + "</button>";
       }).join("") + "</div></div>" +
+      '<div class="card"><h2 style="margin-top:0">Your AI</h2><p class="muted">The "Ask" buttons open this, signed in with your own account and plan. Landmark Prep never sees your AI account.</p><div class="chips" role="radiogroup" aria-label="Your AI">' +
+      Object.keys(AIS).map(function (k) {
+        var cur2 = aiPref() === k;
+        return '<button type="button" class="chip" role="radio" aria-checked="' + cur2 + '" aria-pressed="' + cur2 + '" data-ai-opt="' + k + '">' + AIS[k].name + "</button>";
+      }).join("") + "</div>" + (aiPref() === "claude" ? '<p class="small muted" style="margin-top:10px">If Claude opens without your question filled in, just paste: we copy it for you.</p>' : "") + "</div>" +
       '<div class="card"><h2 style="margin-top:0">Your state</h2><p>' + (P.state ? esc(stateName(P.state)) : "Not chosen yet") + '</p><button class="btn" id="chgState" type="button">Change state</button></div>' +
       '<div class="card"><h2 style="margin-top:0">Your progress</h2><p class="muted">' + esc(sync.on ? syncLine() : "Saved in this browser. Export it from the Progress page to move it to another device.") + '</p><a class="btn" href="#/progress">Open progress</a></div>');
     on("[data-pal]", "click", function (e) { var id = e.currentTarget.getAttribute("data-pal"); store.set("palette", id); applyPalette(id); VIEWS.settings(); });
     on("[data-mode-opt]", "click", function (e) { var t = e.currentTarget.getAttribute("data-mode-opt"); store.set("theme", t); applyTheme(t); VIEWS.settings(); });
     on("#chgState", "click", function () { openStatePicker(); });
+    on("[data-ai-opt]", "click", function (e) { store.set("ai", e.currentTarget.getAttribute("data-ai-opt")); VIEWS.settings(); });
   };
 
   /* ---- About & legal ---- */

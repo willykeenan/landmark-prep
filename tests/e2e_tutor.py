@@ -116,7 +116,7 @@ with sync_playwright() as p:
     pg.goto(BASE + "#/"); pg.wait_for_selector(".journey")
     ok("hi sam" in pg.inner_text(".journey .eyebrow").lower() and pg.evaluate("document.querySelector(\"main\").firstElementChild.classList.contains(\"journey\")"), "signed-in home opens on her next step, greeted by name")
     ok(pg.evaluate("document.documentElement.getAttribute('data-palette')") == "blush", "private page starts in the Blush theme")
-    ok("Your tutor is ready" in pg.inner_text("main") and "Coming soon" not in pg.inner_text("main"), "home offers the tutor instead of a sales pitch")
+    ok("Coming soon" not in pg.inner_text("main") and pg.locator(".ai-banner a.ai-btn").count() == 1 and "Ask your tutor" in pg.inner_text(".ai-banner"), "home offers ChatGPT help and the tutor, no sales pitch")
     # Progress follows the student to another device (a second browser with empty storage)
     pg.click("[data-jdone]"); pg.wait_for_selector(".journey")
     pg.fill("#jHours", "12"); pg.dispatch_event("#jHours", "change")

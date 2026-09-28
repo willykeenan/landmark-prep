@@ -2,7 +2,7 @@
 
 **Last updated:** September 27, 2026
 
-> **Status:** the Tutor plan is not on sale yet. Until it launches, Landmark Prep has no accounts and takes no payments, and your study progress stays in your browser. Our web host keeps only standard request logs. The sections about accounts, the Tutor and billing describe how the plan will work when it opens.
+> **Status:** Landmark Prep has no paid plan and takes no payments. It has no accounts, and your study progress stays in your browser. Our web host keeps only standard request logs. The "Ask ChatGPT" and "Ask Claude" buttons open your own account with those services, and what you type there is governed by their terms, not ours. The sections about accounts, the Tutor plan and billing describe how a paid plan would work if we ever offer one.
 
 This Privacy Policy explains how Landmark Prep, operated by KE Studios (New York, USA), collects, uses, and shares information when you use our online real estate license exam prep service.
 

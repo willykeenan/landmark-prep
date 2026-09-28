@@ -22,6 +22,7 @@ Free, open-source exam prep for the **real estate salesperson license, in every 
 | **Unlimited math drills** | 24 problem types, including commission splits, net-to-seller, prorations, cap rates and depreciation. New York adds transfer, mortgage-recording and mansion tax. Problems are freshly generated each time. |
 | **Licensing roadmap** | Step by step, with official links. New York shows how to get licensed for about **$80 total** (a free state-approved 77-hour course, the $15 exam and the $65 license). Every other state shows its quoted requirements. |
 | **Your next step** | The home page walks you through getting licensed one step at a time, with the link you need for each (for New York: the free state-approved course, your NY photo ID at the DMV, booking a proctor, the exam, a sponsoring broker). Enter your course hours and a target date to get a weekly pace. |
+| **Works with your AI** | Every question, topic, flashcard and licensing step has a button that opens your own ChatGPT or Claude with a ready-made prompt (explain this, teach me this, quiz me on my weak spots, help me with this step). Nothing goes through us. |
 | **Make it yours** | Settings has color themes (Classic navy and gold, Blush pink and white, Lavender) in light or dark, each checked for WCAG AA contrast. |
 
 Progress is saved in your browser, and you can export or import it to switch devices.
@@ -65,7 +66,7 @@ python3 tutor/tutor_server.py --env-file tutor.env serve     # tutor.env: TUTOR_
 - This **does not replace your state's required pre-licensing course**. Every state requires education from a school it approves before you can be licensed. For New York, the roadmap shows a free option.
 - It is **not legal advice** and not affiliated with any state real estate commission. Laws, fees and exam formats change, so confirm with your state's regulator.
 - The questions are **original**. They are not copied from any exam, course or book, and they are not actual state exam questions.
-- The paid Tutor plan in the app is marked "coming soon". Nothing here takes payments. The terms, privacy and refund pages (`legal/`) describe how that plan will work.
+- Nothing here takes payments, and there are no accounts. AI help runs in the student's own ChatGPT or Claude: the "Ask" buttons open a new chat there with the question, topic or step already written in. The terms, privacy and refund pages (`legal/`) describe how a paid plan would work if one is ever offered.
 
 The New York content was checked in September 2026 against:
 

@@ -39,7 +39,7 @@ with sync_playwright() as p:
         for route, h1 in [("#/", "New York real estate exam"), ("#/roadmap", "How to get"), ("#/study", "Study notes"), ("#/unit/2", "Law of Agency"),
                           ("#/cards", "Flashcards"), ("#/practice", "Practice questions"), ("#/math", "Math drills"),
                           ("#/exam", "Mock state exam"), ("#/progress", "Your progress"), ("#/about", "About"),
-                          ("#/pricing", "Free to study"), ("#/terms", "Terms of Service"), ("#/privacy", "Privacy Policy"),
+                          ("#/pricing", "works with your AI"), ("#/terms", "Terms of Service"), ("#/privacy", "Privacy Policy"),
                           ("#/refunds", "Cancellation and Refund Policy")]:
             pg.goto(BASE + route); pg.wait_for_selector("main h1")
             ok(h1 in pg.inner_text("main h1"), f"[{tag}] {route} renders")
@@ -53,6 +53,20 @@ with sync_playwright() as p:
         pg.fill("#jHours", "7"); pg.dispatch_event("#jHours", "change")
         pg.fill("#jTarget", "2099-01-01"); pg.dispatch_event("#jTarget", "change")
         ok("hour" in pg.inner_text("#jPace") and "70 hours" in pg.inner_text("#jPace"), f"[{tag}] course pace is worked out from hours and date")
+        # Work alongside ChatGPT or Claude: answer feedback, topic pages and steps open the student's own AI with a prompt
+        pg.goto(BASE + "#/practice/unit/2"); pg.click("[data-count='10']"); pg.click("#start")
+        stem = pg.inner_text(".qstem")
+        pg.locator(".choice").first.click()
+        href = pg.get_attribute(".feedback a.ai-btn", "href")
+        from urllib.parse import unquote
+        ok(href.startswith("https://chatgpt.com/?q=") and stem[:40] in unquote(href), f"[{tag}] answer feedback opens ChatGPT with the question")
+        pg.goto(BASE + "#/unit/2"); pg.wait_for_selector(".unithead")
+        ok("Study this with ChatGPT" in pg.inner_text(".unithead") and "Law of Agency" in unquote(pg.get_attribute(".unithead a.ai-btn", "href")), f"[{tag}] topic page opens ChatGPT to teach the topic")
+        pg.goto(BASE + "#/settings"); pg.wait_for_selector("[data-ai-opt]")
+        pg.click("[data-ai-opt='claude']")
+        pg.goto(BASE + "#/"); pg.wait_for_selector(".journey")
+        ok(pg.get_attribute(".journey a.ai-btn", "href").startswith("https://claude.ai/new?q=") and "Claude" in pg.inner_text(".ai-banner"), f"[{tag}] choosing Claude switches every Ask button")
+        pg.goto(BASE + "#/settings"); pg.wait_for_selector("[data-ai-opt]"); pg.click("[data-ai-opt='chatgpt']")
         # Settings: color themes
         pg.goto(BASE + "#/settings"); pg.wait_for_selector(".palettes")
         pg.click("[data-pal='blush']")

@@ -858,7 +858,7 @@ Traps: A property manager is a general agent. A listing broker is a special agen
 ### Getting licensed (roadmap)
 Check that you're eligible ($0):
 - You must be over 18.
-- To be licensed you need a current New York State DMV photo driver's license or non-driver ID (DOS pulls your pocket-card photo from DMV). If you only have an out-of-state license, get a NY non-driver ID or license from the DMV before you apply for the license. You can still take the exam with other government photo ID.
+- To be licensed you need a current New York State DMV photo driver's license or non-driver ID (DOS pulls your pocket-card photo from DMV). See Get your New York photo ID below. You can take the course and the exam with the ID you have now.
 - A criminal record is not an automatic bar. DOS reviews it case by case (Correction Law Article 23-A). The application asks about it, so answer honestly.
 Take the 77-hour course (it can be free) ($0–$500+):
 - The license law requires 77 hours from a DOS-approved school. Only an approved school can issue the completion certificate, so there's no way around this step. Every approved school teaches the same state syllabus.
@@ -866,6 +866,11 @@ Take the 77-hour course (it can be free) ($0–$500+):
 - Other approved online schools typically charge $99–$300. Classroom programs can cost $400+.
 - Online courses must be finished within 12 months of starting (19 NYCRR 176.25). For classroom courses you can miss no more than 10% of the time.
 - Some brokerages reimburse course costs for new agents, so ask when you interview.
+Get your New York photo ID (DMV fee):
+- DOS issues your license only if you have a current New York State driver's license or non-driver ID, and your license card uses that DMV photo. You don't need it for the course or the exam, so start it early and let it run alongside.
+- Moved to New York with an out-of-state license? New York asks new residents to exchange it within 30 days. It's done in person at a DMV office: you surrender the old license, pass a vision test there (or bring form MV-619), and pay the fee. The old license must have your photo, be current or expired less than 24 months, and have been issued at least 6 months ago.
+- Don't drive? Get a non-driver ID at a DMV office instead. Bring proof of your date of birth and your Social Security card.
+- Use the DMV's online pre-screening to see exactly which documents to bring, and book an appointment to skip the line.
 Pass the school's final exam (proctored) ($0–$99):
 - Online courses end with a proctored final exam. Most schools, including LearnCycle's free tier, need an approved in-person proctor. A few schools are approved to give the final online at home; LearnCycle includes that in its paid tiers ($99, or $149 with exam prep).
 - For an in-person final, follow your school's instructions for booking an approved proctor, and try your local public library first, since many proctor for free. Private proctors usually charge about $25–$54.
