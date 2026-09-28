@@ -10,6 +10,8 @@ subscription). Each user gets their own records in a local SQLite database:
   brain     a short "brainfile" the tutor keeps about each student (goals,
             strengths, weak spots, preferences) and rewrites as it learns
   progress  the latest study-progress snapshot sent by the study app
+  app_state the student's whole study state, merged across devices so nothing is lost
+  app_state_history  earlier versions of that state, for recovery (state-history / state-restore)
   accounts  email + salted password hash for people who signed up themselves
   invites   single- or multi-use codes that let someone create an account
 
@@ -37,7 +39,7 @@ import sys
 import tempfile
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -132,6 +134,15 @@ CREATE TABLE IF NOT EXISTS app_state (
   saved_at REAL NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS app_state_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  data TEXT NOT NULL,
+  saved_at REAL NOT NULL,
+  taken_at TEXT NOT NULL,
+  reason TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS app_state_history_user ON app_state_history(user_id, id);
 CREATE TABLE IF NOT EXISTS usage (
   user_id TEXT NOT NULL,
   at REAL NOT NULL
@@ -154,6 +165,56 @@ CREATE TABLE IF NOT EXISTS invites (
 """
 
 STATE_MAX_BYTES = 600_000  # a heavy user's full study state is well under this
+HISTORY_EVERY = 10 * 60      # keep a snapshot of a student's state at most this often...
+HISTORY_KEEP = 2000          # ...and this many per student (weeks of heavy daily study)
+STATE_MAPS = {"q", "cards", "road", "read", "plan"}  # id -> record: merged item by item
+STATE_LISTS = {"exams"}                              # finished exams: merged by their 'at' time
+
+
+def merge_state(old, old_at: float, new, new_at: float):
+    """Combine two copies of a student's study state so nothing studied on any device is lost.
+
+    Items are merged one by one, so a device that never saw an item (a new phone, a browser
+    that cleared its storage) cannot erase it. When both copies have the same item the newer
+    copy wins, which is how an unchecked step (stored as false) travels. Question stats are the
+    exception: the record with more attempts wins. Finished exams are combined. A newer
+    'resetAt' means the student deliberately started over, so that copy wins whole."""
+    if not isinstance(old, dict) or not old:
+        return new
+    if not isinstance(new, dict):
+        return old
+    r_old, r_new = float(old.get("resetAt") or 0), float(new.get("resetAt") or 0)
+    if r_old != r_new:
+        return new if r_new > r_old else old
+    newer, older = (new, old) if new_at >= old_at else (old, new)
+    out = {}
+    for k in set(old) | set(new):
+        if k not in newer:
+            out[k] = older[k]
+            continue
+        if k not in older:
+            out[k] = newer[k]
+            continue
+        a, b = older[k], newer[k]
+        if k in STATE_MAPS and isinstance(a, dict) and isinstance(b, dict):
+            m = dict(a)
+            for item, v in b.items():
+                mine = a.get(item)
+                if k == "q" and isinstance(mine, dict) and isinstance(v, dict) and (mine.get("s") or 0) > (v.get("s") or 0):
+                    continue
+                m[item] = v
+            out[k] = m
+        elif k in STATE_LISTS and isinstance(a, list) and isinstance(b, list):
+            seen, merged = set(), []
+            for e in a + b:
+                key = ("at", e.get("at")) if isinstance(e, dict) and e.get("at") is not None else json.dumps(e, sort_keys=True)
+                if key not in seen:
+                    seen.add(key)
+                    merged.append(e)
+            out[k] = sorted(merged, key=lambda e: (e.get("at") or 0) if isinstance(e, dict) else 0)
+        else:
+            out[k] = b
+    return out
 USER_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,39}$")
 EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s.]{2,}$")
 NAME = re.compile(r"^[^\W\d_](?:[^\W\d_]|[ .'-]){0,39}$")
@@ -353,14 +414,54 @@ class Store:
 
     # full study state, so progress follows the student across devices
     def set_app_state(self, uid: str, data: dict, saved_at: float):
-        blob = json.dumps(data, separators=(",", ":"))
+        """Merge a device's copy into the stored state (see merge_state); never a blind overwrite."""
         with self.lock, self.conn() as c:
+            r = c.execute("SELECT data,saved_at FROM app_state WHERE user_id=?", (uid,)).fetchone()
+            try:
+                old = json.loads(r["data"]) if r else None
+            except ValueError:
+                old = None
+            old_at = r["saved_at"] if r else 0
+            merged = merge_state(old, old_at, data, saved_at)
+            if old is not None and merged != old:
+                reset = float((merged or {}).get("resetAt") or 0) > float(old.get("resetAt") or 0)
+                self._snapshot(c, uid, r["data"], old_at, "before reset" if reset else "periodic", force=reset)
             c.execute(
                 "INSERT INTO app_state(user_id,data,saved_at,updated_at) VALUES(?,?,?,?) "
-                "ON CONFLICT(user_id) DO UPDATE SET data=excluded.data, saved_at=excluded.saved_at, "
-                "updated_at=excluded.updated_at WHERE excluded.saved_at >= app_state.saved_at",
-                (uid, blob, saved_at, now_iso()),
+                "ON CONFLICT(user_id) DO UPDATE SET data=excluded.data, saved_at=excluded.saved_at, updated_at=excluded.updated_at",
+                (uid, json.dumps(merged, separators=(",", ":")), max(old_at, saved_at), now_iso()),
             )
+
+    def _snapshot(self, c, uid: str, blob: str, saved_at: float, reason: str, force: bool = False):
+        last = c.execute("SELECT taken_at FROM app_state_history WHERE user_id=? ORDER BY id DESC LIMIT 1", (uid,)).fetchone()
+        if not force and last and datetime.now(timezone.utc) - datetime.strptime(last["taken_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc) < timedelta(seconds=HISTORY_EVERY):
+            return
+        c.execute("INSERT INTO app_state_history(user_id,data,saved_at,taken_at,reason) VALUES(?,?,?,?,?)", (uid, blob, saved_at, now_iso(), reason))
+        c.execute("DELETE FROM app_state_history WHERE user_id=? AND id NOT IN "
+                  "(SELECT id FROM app_state_history WHERE user_id=? ORDER BY id DESC LIMIT ?)", (uid, uid, HISTORY_KEEP))
+
+    def state_history(self, uid: str):
+        with self.conn() as c:
+            return [dict(r) for r in c.execute(
+                "SELECT id, taken_at, saved_at, reason, length(data) AS bytes FROM app_state_history WHERE user_id=? ORDER BY id", (uid,))]
+
+    def restore_state(self, uid: str, snap_id: int) -> bool:
+        """Put an earlier version back as the current state (the current one is kept in history first)."""
+        with self.lock, self.conn() as c:
+            snap = c.execute("SELECT data FROM app_state_history WHERE id=? AND user_id=?", (snap_id, uid)).fetchone()
+            if not snap:
+                return False
+            cur = c.execute("SELECT data,saved_at FROM app_state WHERE user_id=?", (uid,)).fetchone()
+            if cur:
+                self._snapshot(c, uid, cur["data"], cur["saved_at"], "before restore", force=True)
+            data = json.loads(snap["data"])
+            data["resetAt"] = time.time() * 1000  # devices take the restored copy whole instead of merging it away
+            c.execute(
+                "INSERT INTO app_state(user_id,data,saved_at,updated_at) VALUES(?,?,?,?) "
+                "ON CONFLICT(user_id) DO UPDATE SET data=excluded.data, saved_at=excluded.saved_at, updated_at=excluded.updated_at",
+                (uid, json.dumps(data, separators=(",", ":")), time.time() * 1000, now_iso()),
+            )
+            return True
 
     def app_state(self, uid: str):
         with self.conn() as c:
@@ -769,6 +870,11 @@ def main(argv=None):
     ia.add_argument("--note", default="")
     sub.add_parser("invites")
     sub.add_parser("accounts", help="list self-created accounts (no password data)")
+    sh = sub.add_parser("state-history", help="list saved versions of a student's study progress")
+    sh.add_argument("id")
+    sr = sub.add_parser("state-restore", help="put an earlier version of a student's progress back")
+    sr.add_argument("id")
+    sr.add_argument("snapshot", type=int)
     sp = sub.add_parser("set-password", help="reset an account's password (asks for it; never pass it as an argument)")
     sp.add_argument("email")
     bs = sub.add_parser("brain", help="print a user's brainfile")
@@ -795,6 +901,13 @@ def main(argv=None):
     if args.cmd == "accounts":
         for a in Store(cfg.data_dir).accounts():
             print(f"{a['user_id']}\t{a['email']}\t{a['display_name']}\t{a['created_at']}")
+        return
+    if args.cmd == "state-history":
+        for h in Store(cfg.data_dir).state_history(args.id.lower()):
+            print(f"{h['id']}\t{h['taken_at']}\t{h['reason']}\t{h['bytes']} bytes")
+        return
+    if args.cmd == "state-restore":
+        print("ok" if Store(cfg.data_dir).restore_state(args.id.lower(), args.snapshot) else "No such version for that student; nothing changed.")
         return
     if args.cmd == "set-password":
         pw = getpass.getpass("New password (8+ characters): ")

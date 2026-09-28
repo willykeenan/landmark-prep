@@ -192,6 +192,74 @@ class TutorTest(unittest.TestCase):
         self.assertEqual(self.req("/state", user="bob")[0], 402)
         self.assertEqual(self.req("/state", {"data": [], "savedAt": 3000}, user="syn")[0], 400)
 
+    # ---- progress can never be lost: merge, history, restore, backups
+
+    def test_a_fresh_device_cannot_erase_progress(self):
+        self.app.store.upsert_user("mrg", "Mrg", "granted")
+        full = {"q": {"a": {"s": 3, "r": 2, "w": 1, "last": 1}, "b": {"s": 1, "r": 1, "w": 0, "last": 1}},
+                "road": {"course": True}, "read": {"1": True}, "exams": [{"at": 100, "score": 70}], "plan": {"hours": 12}}
+        self.req("/state", {"data": full, "savedAt": 1000}, user="mrg")
+        # A new phone (or a browser that cleared its storage) studies one question and saves later.
+        c, r = self.req("/state", {"data": {"q": {"c": {"s": 1, "r": 0, "w": 1, "last": 0}}, "road": {}, "exams": []}, "savedAt": 5000}, user="mrg")
+        self.assertEqual(c, 200)
+        d = r["data"]
+        self.assertEqual(set(d["q"]), {"a", "b", "c"})
+        self.assertEqual((d["road"], d["read"], d["plan"], len(d["exams"])), ({"course": True}, {"1": True}, {"hours": 12}, 1))
+        self.assertEqual(r["savedAt"], 5000)
+
+    def test_offline_work_on_two_devices_is_combined(self):
+        self.app.store.upsert_user("two", "Two", "granted")
+        self.req("/state", {"data": {"q": {"a": {"s": 5, "r": 4, "w": 1, "last": 1}}, "exams": [{"at": 1, "score": 60}]}, "savedAt": 2000}, user="two")
+        # The laptop was offline and saves an older copy with different work in it.
+        _, r = self.req("/state", {"data": {"q": {"a": {"s": 2, "r": 2, "w": 0, "last": 1}, "z": {"s": 1, "r": 1, "w": 0, "last": 1}},
+                                            "exams": [{"at": 2, "score": 80}, {"at": 1, "score": 60}]}, "savedAt": 1500}, user="two")
+        d = r["data"]
+        self.assertEqual(d["q"]["a"]["s"], 5, "the record with more attempts wins")
+        self.assertIn("z", d["q"])
+        self.assertEqual([e["at"] for e in d["exams"]], [1, 2], "exams combined without duplicates")
+
+    def test_unchecking_a_step_travels_and_reset_is_deliberate(self):
+        self.app.store.upsert_user("unc", "Unc", "granted")
+        self.req("/state", {"data": {"road": {"course": True, "exam": True}}, "savedAt": 1000}, user="unc")
+        _, r = self.req("/state", {"data": {"road": {"course": True, "exam": False}}, "savedAt": 2000}, user="unc")
+        self.assertEqual(r["data"]["road"], {"course": True, "exam": False})
+        # "Reset progress" on a device: the newer resetAt wins whole, and the old copy is kept.
+        _, r = self.req("/state", {"data": {"q": {}, "road": {}, "resetAt": 3000}, "savedAt": 3000}, user="unc")
+        self.assertEqual(r["data"]["road"], {})
+        hist = self.app.store.state_history("unc")
+        self.assertEqual(hist[-1]["reason"], "before reset")
+        # ...so it can be put back.
+        self.assertTrue(self.app.store.restore_state("unc", hist[-1]["id"]))
+        d = self.app.store.app_state("unc")
+        self.assertEqual(d["data"]["road"], {"course": True, "exam": False})
+        self.assertGreater(d["data"]["resetAt"], 3000, "a restore wins whole on every device")
+        self.assertFalse(self.app.store.restore_state("unc", 999999))
+        self.assertFalse(self.app.store.restore_state("ang", hist[-1]["id"]), "snapshots belong to one student")
+
+    def test_history_is_kept_at_most_every_ten_minutes(self):
+        self.app.store.upsert_user("his", "His", "granted")
+        for i in range(5):
+            self.req("/state", {"data": {"q": {str(i): {"s": 1, "r": 1, "w": 0, "last": 1}}}, "savedAt": 1000 + i}, user="his")
+        self.assertEqual(len(self.app.store.state_history("his")), 1)
+
+    def test_backup_script_copies_checks_and_rotates(self):
+        import backup_db as B
+        src = self.app.store.path
+        with tempfile.TemporaryDirectory() as d:
+            dest = Path(d) / "b"
+            self.assertTrue(B.backup_to(src, dest, 2, 0, time.time()).startswith("ok"))
+            for i in range(3):
+                B.backup_to(src, dest, 2, 0, time.time() + i + 1)
+            kept = B.copies(dest)
+            self.assertEqual(len(kept), 2)
+            import sqlite3
+            self.assertEqual(sqlite3.connect(kept[-1]).execute("SELECT COUNT(*) FROM users").fetchone()[0] > 0, True)
+            self.assertEqual(oct(kept[-1].stat().st_mode & 0o777), "0o600")
+            self.assertEqual(sorted(p.name for p in dest.iterdir() if not p.name.endswith(".db")), [], "no side files left behind")
+            self.assertTrue(B.backup_to(src, dest, 2, 24, time.time()).startswith("skip"), "a recent copy is not repeated")
+            self.assertIn("not mounted", B.backup_to(src, Path("/", "Volumes", "no-such-drive-xyz", "b"), 2, 0, time.time()))
+            self.assertEqual(B.main(["--db", str(src), "--dest", f"{d}/c:3:0"]), 0)
+
     def test_state_size_limit(self):
         # The server refuses before reading the body, so the client sees either the 413
         # or the connection closing mid-upload; both mean the oversized save was refused.

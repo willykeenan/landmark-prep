@@ -97,13 +97,34 @@
   function save(k) { store.set(k, P[k]); }
 
   /* ---------- sync (hosted builds): progress follows the student across devices ---------- */
-  var SYNC_KEYS = ["q", "cards", "exams", "road", "read", "state", "plan", "palette", "ai"];
+  // The server merges every device's copy item by item (nothing studied anywhere is lost), so an
+  // unchecked step is stored as false rather than deleted, and "reset" is marked with resetAt.
+  var SYNC_KEYS = ["q", "cards", "exams", "road", "read", "state", "plan", "palette", "ai", "resetAt"];
   var SYNC_DEFAULTS = { q: {}, cards: {}, exams: [], road: {}, read: {}, state: DEFAULT_STATE || null, plan: {} };
-  var sync = { on: !!TUTOR_API, timer: null, quiet: false, status: "local", at: 0 };
+  var sync = { on: !!TUTOR_API, timer: null, quiet: false, status: "local", at: 0, changes: 0 };
   function onStoreSet(k) {
     if (!sync || !sync.on || sync.quiet || SYNC_KEYS.indexOf(k) < 0) return;
-    sync.quiet = true; store.set("savedAt", Date.now()); sync.quiet = false;
+    sync.changes++;
+    sync.quiet = true; store.set("savedAt", Date.now()); store.set("dirty", true); sync.quiet = false;
     clearTimeout(sync.timer); sync.timer = setTimeout(function () { pushState(false); }, 2500);
+  }
+  // Take the account's copy (the server's merge of every device), unless this device changed since.
+  function adoptServer(j) {
+    if (!j || !j.data) return;
+    var before = JSON.stringify(SYNC_KEYS.map(function (k) { return store.get(k, null); }));
+    sync.quiet = true;
+    SYNC_KEYS.forEach(function (k) {
+      if (k === "palette" || k === "ai" || k === "resetAt") { if (j.data[k]) store.set(k, j.data[k]); return; }
+      var v = j.data[k] !== undefined ? j.data[k] : SYNC_DEFAULTS[k];
+      store.set(k, v); P[k] = v;
+    });
+    store.set("savedAt", j.savedAt);
+    sync.quiet = false;
+    sync.status = "synced"; sync.at = Date.now();
+    if (JSON.stringify(SYNC_KEYS.map(function (k) { return store.get(k, null); })) !== before) {
+      applyPalette(store.get("palette", DEFAULT_PALETTE));
+      route();
+    }
   }
   function pushState(keepalive) {
     if (!sync.on) return;
@@ -111,8 +132,15 @@
     var data = {};
     SYNC_KEYS.forEach(function (k) { var v = store.get(k, undefined); if (v !== undefined) data[k] = v; });
     var body = JSON.stringify({ data: data, savedAt: store.get("savedAt", 0) || Date.now() });
+    var sent = sync.changes;
     fetch(TUTOR_API + "/state", { method: "POST", credentials: "same-origin", keepalive: !!keepalive && body.length < 60000, headers: { "Content-Type": "application/json" }, body: body })
-      .then(function (r) { sync.status = r.ok ? "synced" : "local"; if (r.ok) sync.at = Date.now(); })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!j) { sync.status = "local"; return; }
+        sync.status = "synced"; sync.at = Date.now();
+        // Nothing changed here while saving: this device is in step with the account.
+        if (sync.changes === sent) { store.set("dirty", false); adoptServer(j); }
+      })
       .catch(function () { sync.status = "local"; });
   }
   function pullState() {
@@ -122,19 +150,12 @@
       .then(function (j) {
         if (!j) { sync.status = "local"; return; }
         var local = store.get("savedAt", 0);
-        if (j.data && j.savedAt > local) {
-          // Another device saved more recently: take its copy.
-          sync.quiet = true;
-          SYNC_KEYS.forEach(function (k) {
-            if (k === "palette" || k === "ai") { if (j.data[k]) store.set(k, j.data[k]); return; }
-            var v = j.data[k] !== undefined ? j.data[k] : SYNC_DEFAULTS[k];
-            store.set(k, v); P[k] = v;
-          });
-          store.set("savedAt", j.savedAt);
-          sync.quiet = false;
-          applyPalette(store.get("palette", DEFAULT_PALETTE));
-          sync.status = "synced"; sync.at = Date.now();
-          route();
+        if (store.get("dirty", false)) {
+          // Work done here that the account hasn't seen (offline, or the save didn't finish):
+          // send it first; the server merges it with everything else and we take the result.
+          pushState(false);
+        } else if (j.data && j.savedAt > local) {
+          adoptServer(j);
         } else if (local > (j.savedAt || 0)) {
           pushState(false);
         } else {
@@ -552,7 +573,7 @@
     bindNudge();
     on("input[data-step]", "change", function (e) {
       var id = e.target.getAttribute("data-step");
-      if (e.target.checked) P.road[id] = true; else delete P.road[id];
+      P.road[id] = !!e.target.checked;
       save("road");
       e.target.closest(".step").classList.toggle("done", e.target.checked);
     });
@@ -642,7 +663,7 @@
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     });
     on("#readBtn", "click", function (e) {
-      if (P.read[u.id]) delete P.read[u.id]; else P.read[u.id] = true;
+      P.read[u.id] = !P.read[u.id];
       save("read");
       e.target.textContent = P.read[u.id] ? "✓ Marked read" : "Mark as read";
     });
@@ -1091,9 +1112,9 @@
       r.readAsText(f);
     });
     on("#reset", "click", function () {
-      if (!confirm("Erase all progress, flashcard boxes, exam history and checklist marks on this device?")) return;
+      if (!confirm("Erase all progress, flashcard boxes, exam history and checklist marks?")) return;
       ["q", "cards", "exams", "road", "read", "examInProgress"].forEach(store.del);
-      onStoreSet("road");
+      store.set("resetAt", Date.now());
       P.q = {}; P.cards = {}; P.exams = []; P.road = {}; P.read = {};
       VIEWS.progress();
     });
@@ -1127,9 +1148,9 @@
         return { id: u.id, title: shortTitle(u.title), seen: s.seen, total: s.total, acc: s.lastAcc == null ? null : Math.round(s.lastAcc * 100) };
       }),
       exams: P.exams.slice(-3).map(function (e) { return { date: new Date(e.at).toISOString().slice(0, 10), score: e.score, total: e.total }; }),
-      roadmap: Object.keys(P.road),
+      roadmap: Object.keys(P.road).filter(function (k) { return P.road[k]; }),
       cardsMastered: glossaryFor(t).filter(function (g) { return cardState(g.id).box >= 4; }).length,
-      unitsRead: Object.keys(P.read).map(Number),
+      unitsRead: Object.keys(P.read).filter(function (k) { return P.read[k]; }).map(Number),
       journey: (function () {
         var st = journeySteps(), open = st.filter(function (s) { return !P.road[s.id]; });
         return { nextStep: open[0] ? open[0].title : (st.length ? "all steps done" : null), stepsDone: st.length - open.length, stepsTotal: st.length,
@@ -1307,7 +1328,11 @@
   pullState();
   if (sync.on) {
     window.addEventListener("pagehide", function () { if (sync.timer) pushState(true); });
-    document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden" && sync.timer) pushState(true); });
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "hidden" && sync.timer) pushState(true);
+      // Back to a tab that sat open: catch up with other devices before studying here.
+      if (document.visibilityState === "visible" && !sync.timer) pullState();
+    });
   }
   if (!ROOT.hasAttribute("data-no-sw") && "serviceWorker" in navigator && /^https?:$/.test(location.protocol) && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
     navigator.serviceWorker.register("sw.js").catch(function () {});

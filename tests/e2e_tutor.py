@@ -127,6 +127,26 @@ with sync_playwright() as p:
     other.on("pageerror", lambda e: errors.append(str(e)))
     other.goto(BASE + "#/"); other.wait_for_function("document.querySelector('.journey h2') && document.querySelector('.journey h2').textContent.indexOf('77-hour') >= 0", timeout=15000)
     ok(other.input_value("#jHours") == "12", "second device picks up the same step and course hours")
+    # A brand-new device opens while the account can't be reached, studies, then comes back online.
+    # Nothing from either device may be lost (the server merges instead of overwriting).
+    fresh_ctx = b.new_context(viewport={"width": 390, "height": 844})
+    fresh = fresh_ctx.new_page()
+    fresh.on("pageerror", lambda e: errors.append(str(e)))
+    fresh_ctx.route("**/api/state", lambda route: route.abort())
+    fresh.goto(BASE + "#/unit/1"); fresh.wait_for_selector("#readBtn")
+    fresh.click("#readBtn")
+    fresh.evaluate("new Promise(function (r) { setTimeout(r, 3500); })")
+    st = app.store.app_state("student")["data"]
+    ok(st["plan"].get("hours") == 12 and not (st.get("read") or {}).get("1"), "while offline, the account copy is untouched")
+    fresh_ctx.unroute("**/api/state")
+    fresh.evaluate("document.dispatchEvent(new Event('visibilitychange'))")  # she comes back to the tab
+    fresh.evaluate("new Promise(function (r) { setTimeout(r, 3000); })")
+    st = app.store.app_state("student")["data"]
+    ok(st["plan"].get("hours") == 12 and st["road"].get("eligible") and st["read"].get("1") is True, "the new device's work merges into the account; nothing is lost")
+    ok(fresh.evaluate("JSON.parse(localStorage.getItem('nyre.plan') || '{}').hours") == 12, "the new device now has the earlier progress too")
+    pg.evaluate("document.dispatchEvent(new Event('visibilitychange'))")  # back to the first device's tab
+    pg.evaluate("new Promise(function (r) { setTimeout(r, 2500); })")
+    ok(pg.evaluate("JSON.parse(localStorage.getItem('nyre.read') || '{}')['1']") is True, "the first device catches up when its tab is shown again")
     b.close()
 
 site.shutdown()
