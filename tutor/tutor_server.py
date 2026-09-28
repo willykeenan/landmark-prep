@@ -10,6 +10,8 @@ subscription). Each user gets their own records in a local SQLite database:
   brain     a short "brainfile" the tutor keeps about each student (goals,
             strengths, weak spots, preferences) and rewrites as it learns
   progress  the latest study-progress snapshot sent by the study app
+  accounts  email + salted password hash for people who signed up themselves
+  invites   single- or multi-use codes that let someone create an account
 
 Safety: the model runs with NO tools (`--tools ""`), no MCP servers, and no
 user/project settings or hooks, in an empty temporary directory. It can only
@@ -22,10 +24,12 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import hmac
 import json
 import os
 import re
+import secrets
 import shutil
 import sqlite3
 import subprocess
@@ -133,10 +137,38 @@ CREATE TABLE IF NOT EXISTS usage (
   at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS usage_user ON usage(user_id, at);
+CREATE TABLE IF NOT EXISTS accounts (
+  user_id TEXT PRIMARY KEY REFERENCES users(id),
+  email TEXT NOT NULL UNIQUE,
+  salt TEXT NOT NULL,
+  hash TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS invites (
+  code TEXT PRIMARY KEY,
+  access TEXT NOT NULL CHECK (access IN ('granted')),
+  uses_left INTEGER NOT NULL CHECK (uses_left >= 0),
+  note TEXT,
+  created_at TEXT NOT NULL
+);
 """
 
 STATE_MAX_BYTES = 600_000  # a heavy user's full study state is well under this
 USER_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,39}$")
+EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s.]{2,}$")
+NAME = re.compile(r"^[^\W\d_](?:[^\W\d_]|[ .'-]){0,39}$")
+LOGIN_TRIES, LOGIN_WINDOW = 8, 15 * 60  # wrong passwords per email before a 15-minute pause
+
+
+def hash_password(password: str, salt_hex: str) -> str:
+    """PBKDF2-HMAC-SHA256, 600,000 iterations (OWASP 2023). macOS's /usr/bin/python3 has no scrypt."""
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt_hex), 600_000).hex()
+
+
+class AccountError(ValueError):
+    def __init__(self, code: str, status: int):
+        super().__init__(code)
+        self.code, self.status = code, status
 
 
 def now_iso() -> str:
@@ -182,6 +214,68 @@ class Store:
     def users(self):
         with self.conn() as c:
             return [dict(r) for r in c.execute("SELECT * FROM users ORDER BY id")]
+
+    # accounts and invites
+    def add_invite(self, code: str, uses: int, note: str = "", access: str = "granted"):
+        code = code.strip().lower()
+        if not re.match(r"^[a-z0-9][a-z0-9_-]{2,39}$", code) or uses < 1:
+            raise ValueError("invite codes are 3-40 letters, digits, - or _; uses >= 1")
+        with self.lock, self.conn() as c:
+            c.execute("INSERT INTO invites(code,access,uses_left,note,created_at) VALUES(?,?,?,?,?) "
+                      "ON CONFLICT(code) DO UPDATE SET uses_left=excluded.uses_left, note=excluded.note",
+                      (code, access, uses, note, now_iso()))
+
+    def invites(self):
+        with self.conn() as c:
+            return [dict(r) for r in c.execute("SELECT * FROM invites ORDER BY created_at")]
+
+    def accounts(self):
+        with self.conn() as c:
+            return [dict(r) for r in c.execute(
+                "SELECT a.user_id, a.email, u.display_name, a.created_at FROM accounts a JOIN users u ON u.id=a.user_id ORDER BY a.created_at")]
+
+    def create_account(self, email, name, password, invite) -> dict:
+        email = str(email or "").strip().lower()
+        name = " ".join(str(name or "").split())
+        password = password if isinstance(password, str) else ""
+        invite = str(invite or "").strip().lower()
+        if len(email) > 254 or not EMAIL.match(email):
+            raise AccountError("bad_email", 400)
+        if not NAME.match(name):
+            raise AccountError("bad_name", 400)
+        if not 8 <= len(password) <= 200:
+            raise AccountError("bad_password", 400)
+        salt = secrets.token_hex(16)
+        digest = hash_password(password, salt)  # slow on purpose; done outside the lock
+        base = re.sub(r"[^a-z0-9]+", "-", email.split("@")[0]).strip("-")[:28] or "student"
+        with self.lock, self.conn() as c:
+            row = c.execute("SELECT access, uses_left FROM invites WHERE code=?", (invite,)).fetchone()
+            if not invite or not row or row["uses_left"] < 1:
+                raise AccountError("bad_invite", 403)
+            if c.execute("SELECT 1 FROM accounts WHERE email=?", (email,)).fetchone():
+                raise AccountError("email_taken", 409)
+            while True:
+                uid = f"{base}-{secrets.token_hex(2)}"
+                if USER_ID.match(uid) and not c.execute("SELECT 1 FROM users WHERE id=?", (uid,)).fetchone():
+                    break
+            t = now_iso()
+            c.execute("INSERT INTO users(id,display_name,access,paid_until,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+                      (uid, name, row["access"], None, t, t))
+            c.execute("INSERT INTO accounts(user_id,email,salt,hash,created_at) VALUES(?,?,?,?,?)", (uid, email, salt, digest, t))
+            c.execute("UPDATE invites SET uses_left=uses_left-1 WHERE code=?", (invite,))
+        return {"id": uid, "name": name}
+
+    def check_login(self, email, password) -> dict | None:
+        email = str(email or "").strip().lower()
+        if not isinstance(password, str) or not 1 <= len(password) <= 200 or len(email) > 254:
+            return None
+        with self.conn() as c:
+            r = c.execute("SELECT a.user_id, a.salt, a.hash, u.display_name FROM accounts a JOIN users u ON u.id=a.user_id "
+                          "WHERE a.email=?", (email,)).fetchone()
+        # Hash even for unknown emails so both paths take the same time.
+        got = hash_password(password, r["salt"] if r else "00" * 16)
+        ok = bool(r) and hmac.compare_digest(got, r["hash"])
+        return {"id": r["user_id"], "name": r["display_name"]} if ok else None
 
     # messages
     def add_message(self, uid: str, role: str, content: str, unit=None) -> int:
@@ -444,6 +538,24 @@ class App:
         self.knowledge = cfg.knowledge_file.read_text() if cfg.knowledge_file.exists() else ""
         self.brain_busy = set()
         self.brain_lock = threading.Lock()
+        self.login_fails: dict[str, list[float]] = {}
+        self.login_lock = threading.Lock()
+
+    def login(self, email, password) -> tuple[int, dict]:
+        key = str(email or "").strip().lower()[:254]
+        with self.login_lock:
+            recent = [t for t in self.login_fails.get(key, []) if t > time.time() - LOGIN_WINDOW]
+            self.login_fails[key] = recent
+            if len(recent) >= LOGIN_TRIES:
+                return 429, {"error": "too_many_attempts"}
+        who = self.store.check_login(email, password)
+        if who:
+            with self.login_lock:
+                self.login_fails.pop(key, None)
+            return 200, who
+        with self.login_lock:
+            self.login_fails.setdefault(key, []).append(time.time())
+        return 401, {"error": "bad_login"}
 
     def chat(self, uid: str, message: str, unit=None, progress=None) -> dict:
         user = self.store.user(uid)
@@ -523,10 +635,41 @@ def make_handler(app: App):
             p = self.path.split("?")[0]
             return p[len("/ny-tutor"):] if p.startswith("/ny-tutor") else p
 
-        def _authed_user(self):
+        def _token_ok(self) -> bool:
             auth = self.headers.get("Authorization", "")
             if not token or not auth.startswith("Bearer ") or not hmac.compare_digest(auth[7:].encode(), token):
                 self._send(401, {"error": "unauthorized"})
+                return False
+            return True
+
+        def _account(self, r: str):
+            """Sign-up and sign-in for the web page, which forwards them with the shared token."""
+            if not self._token_ok():
+                return
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                n = 0
+            if n <= 0 or n > 4000:
+                return self._send(413, {"error": "bad_size"})
+            try:
+                body = json.loads(self.rfile.read(n))
+            except ValueError:
+                return self._send(400, {"error": "bad_json"})
+            if not isinstance(body, dict):
+                return self._send(400, {"error": "bad_json"})
+            if r == "/auth/login":
+                code, res = app.login(body.get("email"), body.get("password"))
+                return self._send(code, res)
+            if r == "/auth/signup":
+                try:
+                    return self._send(201, app.store.create_account(body.get("email"), body.get("name"), body.get("password"), body.get("invite")))
+                except AccountError as e:
+                    return self._send(e.status, {"error": e.code})
+            self._send(404, {"error": "not_found"})
+
+        def _authed_user(self):
+            if not self._token_ok():
                 return None
             uid = (self.headers.get("X-KE-User") or "").strip().lower()
             if not USER_ID.match(uid):
@@ -559,6 +702,8 @@ def make_handler(app: App):
 
         def do_POST(self):
             r = self._route()
+            if r.startswith("/auth/"):
+                return self._account(r)
             uid = self._authed_user()
             if not uid:
                 return
@@ -608,6 +753,12 @@ def main(argv=None):
     ua.add_argument("--access", choices=["granted", "paid", "none"], default="none")
     ua.add_argument("--paid-until")
     sub.add_parser("users")
+    ia = sub.add_parser("invite-add", help="create or refill an invite code for sign-up")
+    ia.add_argument("code")
+    ia.add_argument("--uses", type=int, default=1)
+    ia.add_argument("--note", default="")
+    sub.add_parser("invites")
+    sub.add_parser("accounts", help="list self-created accounts (no password data)")
     bs = sub.add_parser("brain", help="print a user's brainfile")
     bs.add_argument("id")
     args = ap.parse_args(argv)
@@ -620,6 +771,18 @@ def main(argv=None):
     if args.cmd == "users":
         for u in Store(cfg.data_dir).users():
             print(f"{u['id']}\t{u['display_name']}\t{u['access']}\t{u['paid_until'] or ''}")
+        return
+    if args.cmd == "invite-add":
+        Store(cfg.data_dir).add_invite(args.code, args.uses, args.note)
+        print("ok")
+        return
+    if args.cmd == "invites":
+        for i in Store(cfg.data_dir).invites():
+            print(f"{i['code']}\t{i['uses_left']} left\t{i['note'] or ''}")
+        return
+    if args.cmd == "accounts":
+        for a in Store(cfg.data_dir).accounts():
+            print(f"{a['user_id']}\t{a['email']}\t{a['display_name']}\t{a['created_at']}")
         return
     if args.cmd == "brain":
         print(Store(cfg.data_dir).brain(args.id.lower())["content"] or "(empty)")

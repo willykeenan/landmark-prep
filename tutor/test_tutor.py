@@ -63,6 +63,65 @@ class TutorTest(unittest.TestCase):
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read() or b"{}")
 
+    # ---- accounts: sign-up with an invite code, then sign in by email
+
+    def acct(self, path, body, token=TOKEN):
+        return self.req(path, body, user=None, token=token)
+
+    def test_password_hash_is_pbkdf2_sha256(self):
+        self.assertEqual(T.hash_password("landmark study 2026", "00112233445566778899aabbccddeeff"),
+                         "f09043d2da4dca23f50f75cc143111d7e69c39b7ff068e23eaeed464342ff796")
+
+    def test_signup_needs_token_and_a_live_invite(self):
+        self.app.store.add_invite("welcome-one", 1, "test")
+        good = {"email": "Sam.Lee@Example.com", "name": "Sam", "password": "long enough 1", "invite": "WELCOME-ONE"}
+        self.assertEqual(self.acct("/auth/signup", good, token=None)[0], 401)
+        self.assertEqual(self.acct("/auth/signup", dict(good, invite="nope"))[0], 403)
+        code, j = self.acct("/auth/signup", good)
+        self.assertEqual(code, 201)
+        self.assertEqual(j["name"], "Sam")
+        self.assertRegex(j["id"], r"^sam-lee-[0-9a-f]{4}$")
+        # single-use code is spent; the same email can't sign up twice
+        self.assertEqual(self.acct("/auth/signup", dict(good, email="other@example.com"))[0], 403)
+        self.app.store.add_invite("welcome-two", 2)
+        self.assertEqual(self.acct("/auth/signup", dict(good, invite="welcome-two"))[0], 409)
+        # the new account is a real tutor user: its study state saves and loads
+        self.assertEqual(self.req("/state", {"data": {"x": 1}, "savedAt": 5}, user=j["id"])[0], 200)
+        self.assertEqual(self.req("/state", user=j["id"])[1]["data"], {"x": 1})
+        # no password material is stored in the clear
+        with self.app.store.conn() as c:
+            row = dict(c.execute("SELECT * FROM accounts WHERE email='sam.lee@example.com'").fetchone())
+        self.assertNotIn("long enough", json.dumps(row))
+
+    def test_signup_validates_fields(self):
+        self.app.store.add_invite("valid-many", 20)
+        base = {"email": "v@example.com", "name": "Val", "password": "long enough 1", "invite": "valid-many"}
+        for field, bad, err in [("email", "not-an-email", "bad_email"), ("email", "a@b", "bad_email"),
+                                ("name", "", "bad_name"), ("name", "<script>", "bad_name"), ("name", "x" * 41, "bad_name"),
+                                ("password", "short", "bad_password"), ("password", 12345678, "bad_password")]:
+            code, j = self.acct("/auth/signup", dict(base, **{field: bad}))
+            self.assertEqual((code, j.get("error")), (400, err), (field, bad))
+        self.assertEqual(self.acct("/auth/signup", dict(base, name="Mary-Jo O'Neil"))[0], 201)
+
+    def test_login_by_email(self):
+        self.app.store.add_invite("login-test", 1)
+        self.acct("/auth/signup", {"email": "kim@example.com", "name": "Kim", "password": "kim's password", "invite": "login-test"})
+        code, j = self.acct("/auth/login", {"email": " KIM@example.com ", "password": "kim's password"})
+        self.assertEqual(code, 200)
+        self.assertEqual(j["name"], "Kim")
+        self.assertEqual(self.acct("/auth/login", {"email": "kim@example.com", "password": "wrong"})[0], 401)
+        self.assertEqual(self.acct("/auth/login", {"email": "nobody@example.com", "password": "x"})[0], 401)
+        self.assertEqual(self.acct("/auth/login", {"email": "kim@example.com", "password": "kim's password"}, token=None)[0], 401)
+
+    def test_login_pauses_after_repeated_wrong_passwords(self):
+        self.app.store.add_invite("lock-test", 1)
+        self.acct("/auth/signup", {"email": "lee@example.com", "name": "Lee", "password": "right password", "invite": "lock-test"})
+        for _ in range(T.LOGIN_TRIES):
+            self.assertEqual(self.acct("/auth/login", {"email": "lee@example.com", "password": "wrong"})[0], 401)
+        self.assertEqual(self.acct("/auth/login", {"email": "lee@example.com", "password": "right password"})[0], 429)
+        self.app.login_fails.clear()
+        self.assertEqual(self.acct("/auth/login", {"email": "lee@example.com", "password": "right password"})[0], 200)
+
     def test_health_is_public_and_minimal(self):
         code, j = self.req("/health", token=None, user=None)
         self.assertEqual(code, 200)
