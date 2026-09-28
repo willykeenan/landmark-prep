@@ -265,6 +265,16 @@ class Store:
             c.execute("UPDATE invites SET uses_left=uses_left-1 WHERE code=?", (invite,))
         return {"id": uid, "name": name}
 
+    def set_password(self, email: str, password: str) -> bool:
+        """Owner-run reset for someone who forgot their password. Returns False when no such account."""
+        if not 8 <= len(password) <= 200:
+            raise AccountError("bad_password", 400)
+        salt = secrets.token_hex(16)
+        digest = hash_password(password, salt)
+        with self.lock, self.conn() as c:
+            cur = c.execute("UPDATE accounts SET salt=?, hash=? WHERE email=?", (salt, digest, str(email).strip().lower()))
+            return cur.rowcount == 1
+
     def check_login(self, email, password) -> dict | None:
         email = str(email or "").strip().lower()
         if not isinstance(password, str) or not 1 <= len(password) <= 200 or len(email) > 254:
@@ -759,6 +769,8 @@ def main(argv=None):
     ia.add_argument("--note", default="")
     sub.add_parser("invites")
     sub.add_parser("accounts", help="list self-created accounts (no password data)")
+    sp = sub.add_parser("set-password", help="reset an account's password (asks for it; never pass it as an argument)")
+    sp.add_argument("email")
     bs = sub.add_parser("brain", help="print a user's brainfile")
     bs.add_argument("id")
     args = ap.parse_args(argv)
@@ -783,6 +795,16 @@ def main(argv=None):
     if args.cmd == "accounts":
         for a in Store(cfg.data_dir).accounts():
             print(f"{a['user_id']}\t{a['email']}\t{a['display_name']}\t{a['created_at']}")
+        return
+    if args.cmd == "set-password":
+        pw = getpass.getpass("New password (8+ characters): ")
+        if pw != getpass.getpass("Same password again: "):
+            raise SystemExit("The two passwords didn't match; nothing changed.")
+        try:
+            changed = Store(cfg.data_dir).set_password(args.email, pw)
+        except AccountError:
+            raise SystemExit("Use at least 8 characters; nothing changed.")
+        print("ok" if changed else "No account with that email; nothing changed.")
         return
     if args.cmd == "brain":
         print(Store(cfg.data_dir).brain(args.id.lower())["content"] or "(empty)")

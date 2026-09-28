@@ -113,6 +113,16 @@ class TutorTest(unittest.TestCase):
         self.assertEqual(self.acct("/auth/login", {"email": "nobody@example.com", "password": "x"})[0], 401)
         self.assertEqual(self.acct("/auth/login", {"email": "kim@example.com", "password": "kim's password"}, token=None)[0], 401)
 
+    def test_owner_can_reset_a_forgotten_password(self):
+        self.app.store.add_invite("reset-test", 1)
+        self.acct("/auth/signup", {"email": "ria@example.com", "name": "Ria", "password": "old password 1", "invite": "reset-test"})
+        self.assertTrue(self.app.store.set_password("RIA@example.com", "new password 2"))
+        self.assertEqual(self.acct("/auth/login", {"email": "ria@example.com", "password": "old password 1"})[0], 401)
+        self.assertEqual(self.acct("/auth/login", {"email": "ria@example.com", "password": "new password 2"})[0], 200)
+        self.assertFalse(self.app.store.set_password("nobody@example.com", "new password 2"))
+        with self.assertRaises(T.AccountError):
+            self.app.store.set_password("ria@example.com", "short")
+
     def test_login_pauses_after_repeated_wrong_passwords(self):
         self.app.store.add_invite("lock-test", 1)
         self.acct("/auth/signup", {"email": "lee@example.com", "name": "Lee", "password": "right password", "invite": "lock-test"})
