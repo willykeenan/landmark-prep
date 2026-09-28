@@ -34,11 +34,11 @@
       },
       {
         id: "final",
-        title: "Pass the school's final exam (proctored, in person)",
-        cost: "$0–$54",
+        title: "Pass the school's final exam (proctored)",
+        cost: "$0–$99",
         body: [
-          "Online courses end with a **proctored final exam at a DOS-approved location in New York** (19 NYCRR 176.23). Webcam-only proctoring isn't accepted for this exam.",
-          "**Ask your school which proctors qualify**, then **call your local public library first**, since many proctor for free. Private proctors usually charge about $25–$54.",
+          "Online courses end with a **proctored final exam**. Most schools, including LearnCycle's free tier, need an **approved in-person proctor**. A few schools are approved to give the final **online at home**; LearnCycle includes that in its paid tiers (**$99**, or $149 with exam prep).",
+          "For an in-person final, **follow your school's instructions for booking an approved proctor**, and **try your local public library first**, since many proctor for free. Private proctors usually charge about $25–$54.",
           "Failing the final means failing the course. Schools may offer a make-up exam, so check the retake policy before you start.",
           "When you pass, the school gives you a signed, sealed **certificate of completion**. Keep it (and a scan). The school also keeps your completion records on file.",
         ],
