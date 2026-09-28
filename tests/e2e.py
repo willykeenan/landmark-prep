@@ -67,6 +67,7 @@ with sync_playwright() as p:
         pg.goto(BASE + "#/"); pg.wait_for_selector(".journey")
         ok(pg.get_attribute(".journey a.ai-btn", "href").startswith("https://claude.ai/new?q=") and "Claude" in pg.inner_text(".ai-banner"), f"[{tag}] choosing Claude switches every Ask button")
         pg.goto(BASE + "#/settings"); pg.wait_for_selector("[data-ai-opt]"); pg.click("[data-ai-opt='chatgpt']")
+        ok("landmark-prep.vercel.app/mcp" in pg.inner_text("#mcpUrl") and pg.locator("#copyMcp").count() == 1, f"[{tag}] settings shows the connector address to add in ChatGPT or Claude")
         # Settings: color themes
         pg.goto(BASE + "#/settings"); pg.wait_for_selector(".palettes")
         pg.click("[data-pal='blush']")

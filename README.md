@@ -44,6 +44,23 @@ node scripts/check-state-sources.mjs          # all states (needs network; PDFs 
 node scripts/check-state-sources.mjs TX NJ    # just these
 ```
 
+## Use it inside ChatGPT or Claude
+
+There are two ways, and neither needs an account with us:
+
+1. **Ask buttons (any plan, including free).** Every question, topic, flashcard and licensing step has a button that opens the student's own ChatGPT or Claude with a ready-made prompt. Pick which one in Settings.
+2. **Connector (MCP).** Add `https://landmark-prep.vercel.app/mcp` as a connector, and ChatGPT or Claude can call Landmark Prep's tools right in the chat:
+   - `licensing_steps`: the path to a license in any state;
+   - `state_requirements`: facts quoted from official sources;
+   - `list_topics` and `study_notes`: the study notes;
+   - `practice_questions` and `check_answer`: practice with explanations.
+
+   Setup:
+   - **Claude (any plan):** Settings, Connectors, Add custom connector.
+   - **ChatGPT (paid plans):** turn on Developer mode, then create an app with the address and no authentication.
+
+   The server is read-only, keeps no state and needs no login. It lives in `api/mcp.js` (a Vercel function) and `mcp/core.js`, and `node tests/mcp.test.mjs` checks the protocol and every tool.
+
 ## Optional: a personal AI tutor that runs on your own computer
 
 `tutor/tutor_server.py` is a small local service (Python standard library only) that powers a **Tutor** tab in the app. It answers with the [Claude Code](https://claude.com/claude-code) CLI using that CLI's own login, grounded in the New York study notes (`tutor/knowledge.md`, built by `node tutor/build_knowledge.mjs`).

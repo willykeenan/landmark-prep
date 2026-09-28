@@ -242,6 +242,8 @@
     chatgpt: { name: "ChatGPT", url: function (q) { return "https://chatgpt.com/?q=" + encodeURIComponent(q); } },
     claude: { name: "Claude", url: function (q) { return "https://claude.ai/new?q=" + encodeURIComponent(q); } },
   };
+  // The read-only Landmark Prep connector (MCP) that ChatGPT or Claude can add by address.
+  var MCP_URL = "https://landmark-prep.vercel.app/mcp";
   function aiPref() { var a = store.get("ai", DEFAULT_AI); return AIS[a] ? a : "chatgpt"; }
   function aiName() { return AIS[aiPref()].name; }
   function examName() {
@@ -1242,12 +1244,20 @@
         var cur2 = aiPref() === k;
         return '<button type="button" class="chip" role="radio" aria-checked="' + cur2 + '" aria-pressed="' + cur2 + '" data-ai-opt="' + k + '">' + AIS[k].name + "</button>";
       }).join("") + "</div>" + (aiPref() === "claude" ? '<p class="small muted" style="margin-top:10px">If Claude opens without your question filled in, just paste: we copy it for you.</p>' : "") + "</div>" +
+      '<div class="card"><h2 style="margin-top:0">Use Landmark Prep inside your AI</h2><p class="muted">Add this address as a connector and your AI can pull Landmark\'s notes, practice questions and your state\'s requirements right in the chat. No sign-in needed.</p>' +
+      '<div class="row"><code class="mcpurl" id="mcpUrl">' + esc(MCP_URL) + '</code><button class="btn sm" type="button" id="copyMcp">Copy</button></div>' +
+      '<ul class="small" style="margin-top:12px"><li><strong>Claude</strong> (any plan): Settings, Connectors, Add custom connector, then paste the address.</li>' +
+      "<li><strong>ChatGPT</strong> (paid plans): turn on Developer mode in Settings, then create an app with this address and no authentication. Free ChatGPT can't add connectors yet; the Ask buttons work on every plan.</li></ul></div>" +
       '<div class="card"><h2 style="margin-top:0">Your state</h2><p>' + (P.state ? esc(stateName(P.state)) : "Not chosen yet") + '</p><button class="btn" id="chgState" type="button">Change state</button></div>' +
       '<div class="card"><h2 style="margin-top:0">Your progress</h2><p class="muted">' + esc(sync.on ? syncLine() : "Saved in this browser. Export it from the Progress page to move it to another device.") + '</p><a class="btn" href="#/progress">Open progress</a></div>');
     on("[data-pal]", "click", function (e) { var id = e.currentTarget.getAttribute("data-pal"); store.set("palette", id); applyPalette(id); VIEWS.settings(); });
     on("[data-mode-opt]", "click", function (e) { var t = e.currentTarget.getAttribute("data-mode-opt"); store.set("theme", t); applyTheme(t); VIEWS.settings(); });
     on("#chgState", "click", function () { openStatePicker(); });
     on("[data-ai-opt]", "click", function (e) { store.set("ai", e.currentTarget.getAttribute("data-ai-opt")); VIEWS.settings(); });
+    on("#copyMcp", "click", function (e) {
+      var b = e.currentTarget;
+      if (navigator.clipboard) navigator.clipboard.writeText(MCP_URL).then(function () { b.textContent = "Copied"; }).catch(function () {});
+    });
   };
 
   /* ---- About & legal ---- */

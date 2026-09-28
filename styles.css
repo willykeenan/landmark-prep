@@ -355,6 +355,7 @@ select, input[type="search"], input[type="text"] {
 .ai-banner { flex-wrap: wrap; }
 .ai-banner .row { display: flex; flex-wrap: wrap; gap: 10px; }
 /* Settings */
+.mcpurl { font: 0.95rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 8px 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); overflow-wrap: anywhere; }
 .palettes { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
 .palette { display: grid; gap: 4px; justify-items: start; text-align: left; padding: 14px; border-radius: var(--radius-sm); border: 2px solid var(--border); background: var(--surface); color: var(--ink); cursor: pointer; font: inherit; }
 .palette:hover { border-color: var(--border-2); }
