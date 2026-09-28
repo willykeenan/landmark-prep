@@ -13,9 +13,14 @@
   //   data-logout="/path"        → adds a sign-out link
   //   data-default-state="NY"    → preselects a state for a private deployment
   //   data-no-sw                 → skip the offline service worker
+  //   data-default-palette="blush" → starting color theme for a private deployment
+  //   data-user-name="Sam"       → greets the signed-in student by name
+  // With data-tutor-api set, study progress also syncs to the student's account ({base}/state).
   var TUTOR_API = ROOT.getAttribute("data-tutor-api");
   var LOGOUT = ROOT.getAttribute("data-logout");
   var DEFAULT_STATE = ROOT.getAttribute("data-default-state");
+  var DEFAULT_PALETTE = ROOT.getAttribute("data-default-palette") || "classic";
+  var USER_NAME = ROOT.getAttribute("data-user-name");
 
   /* ---------- helpers ---------- */
   function hash(s) {
@@ -55,6 +60,7 @@
   }
   function ymd(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
   function today() { return ymd(new Date()); }
+  function fmtDate(iso) { return new Date(iso + "T12:00:00").toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }); }
   function addDays(n) { var d = new Date(); d.setDate(d.getDate() + n); return ymd(d); }
   var LETTERS = ["A", "B", "C", "D", "E"];
 
@@ -70,6 +76,7 @@
     set: function (k, v) {
       mem[k] = v;
       try { localStorage.setItem("nyre." + k, JSON.stringify(v)); } catch { /* private mode, full, etc. */ }
+      onStoreSet(k);
     },
     del: function (k) {
       delete mem[k];
@@ -83,8 +90,61 @@
     road: store.get("road", {}),    // stepId -> true
     read: store.get("read", {}),    // unitId -> true
     state: store.get("state", DEFAULT_STATE || null),
+    plan: store.get("plan", {}),    // {hours: course hours done, target: "YYYY-MM-DD"}
   };
   function save(k) { store.set(k, P[k]); }
+
+  /* ---------- sync (hosted builds): progress follows the student across devices ---------- */
+  var SYNC_KEYS = ["q", "cards", "exams", "road", "read", "state", "plan", "palette"];
+  var SYNC_DEFAULTS = { q: {}, cards: {}, exams: [], road: {}, read: {}, state: DEFAULT_STATE || null, plan: {} };
+  var sync = { on: !!TUTOR_API, timer: null, quiet: false, status: "local", at: 0 };
+  function onStoreSet(k) {
+    if (!sync || !sync.on || sync.quiet || SYNC_KEYS.indexOf(k) < 0) return;
+    sync.quiet = true; store.set("savedAt", Date.now()); sync.quiet = false;
+    clearTimeout(sync.timer); sync.timer = setTimeout(function () { pushState(false); }, 2500);
+  }
+  function pushState(keepalive) {
+    if (!sync.on) return;
+    clearTimeout(sync.timer); sync.timer = null;
+    var data = {};
+    SYNC_KEYS.forEach(function (k) { var v = store.get(k, undefined); if (v !== undefined) data[k] = v; });
+    var body = JSON.stringify({ data: data, savedAt: store.get("savedAt", 0) || Date.now() });
+    fetch(TUTOR_API + "/state", { method: "POST", credentials: "same-origin", keepalive: !!keepalive && body.length < 60000, headers: { "Content-Type": "application/json" }, body: body })
+      .then(function (r) { sync.status = r.ok ? "synced" : "local"; if (r.ok) sync.at = Date.now(); })
+      .catch(function () { sync.status = "local"; });
+  }
+  function pullState() {
+    if (!sync.on) return;
+    fetch(TUTOR_API + "/state", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!j) { sync.status = "local"; return; }
+        var local = store.get("savedAt", 0);
+        if (j.data && j.savedAt > local) {
+          // Another device saved more recently: take its copy.
+          sync.quiet = true;
+          SYNC_KEYS.forEach(function (k) {
+            if (k === "palette") { if (j.data.palette) store.set("palette", j.data.palette); return; }
+            var v = j.data[k] !== undefined ? j.data[k] : SYNC_DEFAULTS[k];
+            store.set(k, v); P[k] = v;
+          });
+          store.set("savedAt", j.savedAt);
+          sync.quiet = false;
+          applyPalette(store.get("palette", DEFAULT_PALETTE));
+          sync.status = "synced"; sync.at = Date.now();
+          route();
+        } else if (local > (j.savedAt || 0)) {
+          pushState(false);
+        } else {
+          sync.status = "synced"; sync.at = Date.now();
+        }
+      })
+      .catch(function () { sync.status = "local"; });
+  }
+  function syncLine() {
+    if (sync.status !== "synced") return "Saved on this device. It syncs to your account whenever you're online.";
+    return "Saved to your account, so it follows you to your phone and laptop" + (sync.at ? " (last synced " + new Date(sync.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + ")." : ".");
+  }
   function recordAnswer(id, ok) {
     var r = P.q[id] || { s: 0, r: 0, w: 0, last: 0 };
     r.s++; if (ok) r.r++; else r.w++; r.last = ok ? 1 : 0;
@@ -154,17 +214,23 @@
       ? '<span class="abbr">' + esc(P.state) + '</span><span class="name">' + esc(stateName(P.state)) + "</span>"
       : '<span class="abbr">US</span><span class="name">Choose your state</span>';
   }
-  var themes = ["auto", "light", "dark"];
   function applyTheme(t) {
     if (t === "auto") ROOT.removeAttribute("data-theme"); else ROOT.setAttribute("data-theme", t);
-    var btn = document.getElementById("themeBtn");
-    if (btn) btn.title = "Theme: " + t;
   }
   applyTheme(store.get("theme", "auto"));
-  document.getElementById("themeBtn").addEventListener("click", function () {
-    var t = themes[(themes.indexOf(store.get("theme", "auto")) + 1) % themes.length];
-    store.set("theme", t); applyTheme(t);
-  });
+  // Color themes live in styles.css under :root[data-palette="…"]; every text pair is WCAG AA.
+  var PALETTES = [
+    { id: "classic", name: "Classic", desc: "Navy and gold", swatch: ["#0d1b3e", "#d8a94b", "#f7f5f0"], meta: "#0d1b3e" },
+    { id: "blush", name: "Blush", desc: "Pink and white", swatch: ["#c2185b", "#ffc1da", "#ffffff"], meta: "#8c1d4f" },
+    { id: "lavender", name: "Lavender", desc: "Soft purple", swatch: ["#6941c6", "#d4c2ff", "#ffffff"], meta: "#3b2a7a" },
+  ];
+  function applyPalette(id) {
+    var pal = PALETTES.filter(function (x) { return x.id === id; })[0] || PALETTES[0];
+    if (pal.id === "classic") ROOT.removeAttribute("data-palette"); else ROOT.setAttribute("data-palette", pal.id);
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", pal.meta);
+  }
+  applyPalette(store.get("palette", DEFAULT_PALETTE));
   document.getElementById("stateBtn").addEventListener("click", function () { openStatePicker(); });
 
   /* ---------- state picker (dialog) ---------- */
@@ -273,14 +339,17 @@
     var sname = P.state ? stateName(P.state) : "real estate";
     var qn = questionsFor(t).length, gn = glossaryFor(t).length;
     var basis = t === "ny" ? "the official New York 77-hour syllabus" : "the national exam content outline";
+    // Signed in (private deployment): her next step comes first, greeted by name.
+    var first = USER_NAME ? journeyCard() : "";
     render(
+      (USER_NAME && !P.state ? '<p class="greet">Hi ' + esc(USER_NAME) + ".</p>" : "") + first +
       '<section class="hero"><div class="hero-grid"><div>' +
       '<span class="eyebrow">Real estate license exam prep' + (P.state ? " · " + esc(stateName(P.state)) : "") + "</span>" +
       "<h1>Pass the " + (P.state ? "<em>" + esc(sname) + "</em> real estate" : "real estate <em>license</em>") + " exam.</h1>" +
-      '<p class="lead">Clear study notes, ' + (qn ? qn + " practice questions" : "practice questions") + ' that explain every answer, flashcards that adapt to you, and timed mock exams. Built on ' + basis + ". Free, no account needed.</p>" +
+      '<p class="lead">Clear study notes, ' + (qn ? qn + " practice questions" : "practice questions") + ' that explain every answer, flashcards that adapt to you, and timed mock exams. Built on ' + basis + (TUTOR_API ? "." : ". Free, no account needed.") + "</p>" +
       '<div class="cta"><a class="btn primary lg" href="#/study">Start studying</a>' +
       (P.state ? '<a class="btn ghost lg" href="#/exam">Take a practice exam</a>' : '<button class="btn ghost lg" id="heroState" type="button">Choose your state</button>') + "</div>" +
-      '<div class="trust"><span>Every answer explained</span><span>Works offline</span><span>Open source</span><span>No sign-up</span></div>' +
+      '<div class="trust">' + (TUTOR_API ? ["Every answer explained", "Your own tutor", "Syncs across devices", "Private to you"] : ["Every answer explained", "Works offline", "Open source", "No sign-up"]).map(function (x) { return "<span>" + x + "</span>"; }).join("") + "</div>" +
       "</div>" +
       '<div class="hero-panel"><div class="ringwrap">' + ring(readiness()) + '<div><b>Exam readiness</b><span class="k">Weighted by how much each topic counts. Goes up as you practice.</span></div></div>' +
       '<div class="mini"><div><span class="v">' + o.seen + '</span><span class="k">questions tried</span></div>' +
@@ -288,6 +357,7 @@
       '<div><span class="v">' + (last ? pct(last.score, last.total) + "%" : "—") + '</span><span class="k">last mock</span></div></div></div>' +
       "</div></section>" +
       stateNudge() +
+      (first ? "" : journeyCard()) +
       '<div class="bento">' +
       '<a class="tile feature" href="#/roadmap"><span class="eyebrow">Get licensed</span><span class="num">' + (t === "ny" ? "$80" : "Step by step") + '</span><span class="t">' + (t === "ny" ? "The cheapest legal path to a New York license" : "Your state's official path to a license") + '</span><span class="d">' + (t === "ny" ? "A free state-approved course, free library proctoring, the $15 exam and the $65 license." : "Education hours, exam format and where to apply, with links to the official sources.") + '</span><span class="go">See the roadmap →</span></a>' +
       '<a class="tile dark" href="#/exam"><span class="eyebrow" style="color:var(--gold-2)">Mock exam</span><span class="num">' + examConfig(t).count + ' questions</span><span class="t">Timed, weighted like the real thing</span><span class="d">No feedback until you submit, then a full review and a topic-by-topic breakdown.</span><span class="go">Start a mock exam →</span></a>' +
@@ -302,11 +372,66 @@
       "<div><b>Drill the math weekly</b><span>Unlimited fresh problems until every formula is automatic.</span></div>" +
       "<div><b>Mock exams in the final 2 weeks</b><span>Then drill your misses. Book the real exam once you score 80%+ consistently.</span></div>" +
       "</div>" +
-      '<div class="banner" style="margin-top:22px"><div><strong>Coming soon: a personal AI tutor</strong> <span class="muted">that remembers what you\'ve studied and quizzes your weak spots. $34.99/month, cancel anytime.</span></div><a class="btn dark" href="#/pricing">See the plan</a></div>'
+      (TUTOR_API
+        ? '<div class="banner" style="margin-top:22px"><div><strong>Your tutor is ready.</strong> <span class="muted">Ask it anything, from a rule you forgot to a plan for this week. It remembers your sessions and knows where you are on your path.</span></div><a class="btn dark" href="#/tutor">Ask your tutor</a></div>'
+        : '<div class="banner" style="margin-top:22px"><div><strong>Coming soon: a personal AI tutor</strong> <span class="muted">that remembers what you\'ve studied and quizzes your weak spots. $34.99/month, cancel anytime.</span></div><a class="btn dark" href="#/pricing">See the plan</a></div>')
     );
     on("#heroState", "click", function () { openStatePicker(); });
     bindNudge();
+    bindJourney();
   };
+
+  /* ---- Your next step (the licensing path, one step at a time) ---- */
+  function journeySteps() {
+    if (!P.state) return [];
+    return track() === "ny" ? N.roadmap.steps : genericSteps(P.state);
+  }
+  function courseStepId() { return track() === "ny" ? "course" : P.state + "-course"; }
+  function courseHoursTotal() { return track() === "ny" ? 77 : ((STATE_FACTS[P.state] || {}).prelicenseHours || null); }
+  function stepNext(s) { return s.next || (s.body && s.body[0] ? s.body[0].replace(/\*\*/g, "") : ""); }
+  function stepAction(s) { return s.action || (s.links && s.links[0]) || null; }
+  function paceLine() {
+    var total = courseHoursTotal(), plan = P.plan || {};
+    if (!total) return "";
+    var done = Math.max(0, Math.min(total, Number(plan.hours) || 0)), left = total - done;
+    if (left <= 0) return "All " + total + " hours done. Book your course final next.";
+    if (!plan.target) return left + " hours to go. Pick a date to finish and you'll get a weekly pace.";
+    var days = Math.ceil((new Date(plan.target + "T23:59:59") - Date.now()) / 86400000);
+    if (days <= 0) return "That date has passed. Pick a new one.";
+    var perWeek = Math.max(1, Math.ceil(left / Math.max(1, days / 7)));
+    return "About " + perWeek + " hour" + (perWeek === 1 ? "" : "s") + " a week finishes the remaining " + left + " hours by " + fmtDate(plan.target) + ".";
+  }
+  function journeyCard() {
+    var steps = journeySteps();
+    if (!steps.length) return "";
+    var open = steps.filter(function (s) { return !P.road[s.id]; });
+    var done = steps.length - open.length;
+    var bar = '<div class="jbar" role="progressbar" aria-label="Licensing path" aria-valuemin="0" aria-valuemax="' + steps.length + '" aria-valuenow="' + done + '"><span style="width:' + pct(done, steps.length) + '%"></span></div>';
+    if (!open.length) return '<section class="card journey' + (USER_NAME ? " top" : "") + '"><span class="eyebrow">' + (USER_NAME ? "Hi " + esc(USER_NAME) + " · your path" : "Your path") + "</span>" + bar + "<h2>Every step is done. You're licensed.</h2><p class=\"muted\">Keep your continuing education on track for renewal.</p></section>";
+    var s = open[0], then = open[1], act = stepAction(s), total = courseHoursTotal(), plan = P.plan || {};
+    var planRow = !P.road[courseStepId()] && total
+      ? '<div class="jplan"><label>Course hours done <input type="number" id="jHours" inputmode="numeric" min="0" max="' + total + '" step="1" value="' + esc(String(plan.hours || "")) + '" placeholder="0"> of ' + total + "</label>" +
+        '<label>Finish the course by <input type="date" id="jTarget" min="' + today() + '" value="' + esc(plan.target || "") + '"></label>' +
+        '<p class="pace" id="jPace">' + esc(paceLine()) + "</p></div>"
+      : "";
+    return '<section class="card journey' + (USER_NAME ? " top" : "") + '" aria-labelledby="jTitle"><span class="eyebrow">' + (USER_NAME ? "Hi " + esc(USER_NAME) + " · your next step · " : "Your next step · ") + (done + 1) + " of " + steps.length + "</span>" + bar +
+      '<h2 id="jTitle">' + esc(s.title) + "</h2><p>" + esc(stepNext(s)) + "</p>" +
+      '<div class="row">' + (act ? '<a class="btn primary" href="' + esc(act[1]) + '" target="_blank" rel="noopener">' + esc(act[0]) + " \u2197</a>" : "") +
+      '<button class="btn" type="button" data-jdone="' + esc(s.id) + '">Mark this done</button><a class="btn ghost" href="#/roadmap">See every step</a></div>' +
+      planRow + (then ? '<p class="small muted jthen">Then: ' + esc(then.title) + "</p>" : "") + "</section>";
+  }
+  function bindJourney() {
+    on("[data-jdone]", "click", function (e) { P.road[e.currentTarget.getAttribute("data-jdone")] = true; save("road"); VIEWS.home(); });
+    function savePlan() {
+      var h = document.getElementById("jHours"), t = document.getElementById("jTarget");
+      if (!h || !t) return;
+      var total = courseHoursTotal() || 0, hours = Math.max(0, Math.min(total, parseInt(h.value, 10) || 0));
+      P.plan = { hours: hours, target: t.value || "" }; save("plan");
+      var pace = document.getElementById("jPace"); if (pace) pace.textContent = paceLine();
+    }
+    on("#jHours", "change", savePlan);
+    on("#jTarget", "change", savePlan);
+  }
 
   /* ---- Roadmap ---- */
   function nyRoadmap() {
@@ -859,7 +984,7 @@
   /* ---- Progress ---- */
   VIEWS.progress = function () {
     var t = track(), o = overall(), units = unitsFor(t);
-    render(pagehead("Progress", "Your progress", "Saved only in this browser. Use export and import to move it to another device.") +
+    render(pagehead("Progress", "Your progress", sync.on ? syncLine() : "Saved only in this browser. Use export and import to move it to another device.") +
       '<div class="card" style="display:flex;gap:26px;align-items:center;flex-wrap:wrap">' + ring(readiness(), true) +
       '<div style="flex:1 1 260px"><h2 style="margin:0 0 6px">Exam readiness</h2><p class="muted" style="margin:0">Combines how much of each topic you\'ve covered with how you did on your latest attempt, weighted by how much each topic counts.</p></div></div>' +
       '<div class="stats">' +
@@ -897,6 +1022,7 @@
     on("#reset", "click", function () {
       if (!confirm("Erase all progress, flashcard boxes, exam history and checklist marks on this device?")) return;
       ["q", "cards", "exams", "road", "read", "examInProgress"].forEach(store.del);
+      onStoreSet("road");
       P.q = {}; P.cards = {}; P.exams = []; P.road = {}; P.read = {};
       VIEWS.progress();
     });
@@ -933,6 +1059,11 @@
       roadmap: Object.keys(P.road),
       cardsMastered: glossaryFor(t).filter(function (g) { return cardState(g.id).box >= 4; }).length,
       unitsRead: Object.keys(P.read).map(Number),
+      journey: (function () {
+        var st = journeySteps(), open = st.filter(function (s) { return !P.road[s.id]; });
+        return { nextStep: open[0] ? open[0].title : (st.length ? "all steps done" : null), stepsDone: st.length - open.length, stepsTotal: st.length,
+          courseHoursDone: P.plan && P.plan.hours != null ? P.plan.hours : null, courseTargetDate: (P.plan && P.plan.target) || null };
+      })(),
     };
   }
   function tutorText(s) {
@@ -1022,6 +1153,28 @@
     on("[data-q]", "click", function (e) { send(e.currentTarget.getAttribute("data-q")); });
   };
 
+  /* ---- Settings ---- */
+  VIEWS.settings = function () {
+    var cur = store.get("palette", DEFAULT_PALETTE), th = store.get("theme", "auto");
+    render(pagehead("Settings", "Make it yours", "Pick your colors. Changes save right away" + (sync.on ? " and follow you to your other devices." : " on this device.")) +
+      '<div class="card"><h2 style="margin-top:0">Colors</h2><div class="palettes" role="radiogroup" aria-label="Color theme">' +
+      PALETTES.map(function (pal) {
+        var on_ = pal.id === cur;
+        return '<button type="button" class="palette' + (on_ ? " on" : "") + '" role="radio" aria-checked="' + on_ + '" data-pal="' + pal.id + '">' +
+          '<span class="sw" aria-hidden="true">' + pal.swatch.map(function (c) { return '<i style="background:' + c + '"></i>'; }).join("") + "</span>" +
+          "<b>" + esc(pal.name) + '</b><span class="d">' + esc(pal.desc) + "</span></button>";
+      }).join("") + "</div>" +
+      '<h2>Light or dark</h2><div class="chips" role="radiogroup" aria-label="Light or dark">' +
+      [["auto", "Match my device"], ["light", "Light"], ["dark", "Dark"]].map(function (o) {
+        return '<button type="button" class="chip" role="radio" aria-checked="' + (o[0] === th) + '" aria-pressed="' + (o[0] === th) + '" data-mode-opt="' + o[0] + '">' + o[1] + "</button>";
+      }).join("") + "</div></div>" +
+      '<div class="card"><h2 style="margin-top:0">Your state</h2><p>' + (P.state ? esc(stateName(P.state)) : "Not chosen yet") + '</p><button class="btn" id="chgState" type="button">Change state</button></div>' +
+      '<div class="card"><h2 style="margin-top:0">Your progress</h2><p class="muted">' + esc(sync.on ? syncLine() : "Saved in this browser. Export it from the Progress page to move it to another device.") + '</p><a class="btn" href="#/progress">Open progress</a></div>');
+    on("[data-pal]", "click", function (e) { var id = e.currentTarget.getAttribute("data-pal"); store.set("palette", id); applyPalette(id); VIEWS.settings(); });
+    on("[data-mode-opt]", "click", function (e) { var t = e.currentTarget.getAttribute("data-mode-opt"); store.set("theme", t); applyTheme(t); VIEWS.settings(); });
+    on("#chgState", "click", function () { openStatePicker(); });
+  };
+
   /* ---- About & legal ---- */
   VIEWS.about = function () {
     render(pagehead("About", "About Landmark Prep", "Free, open-source exam prep for real estate license candidates, from KE Studios.") +
@@ -1066,6 +1219,11 @@
 
   /* ---------- boot ---------- */
   route();
+  pullState();
+  if (sync.on) {
+    window.addEventListener("pagehide", function () { if (sync.timer) pushState(true); });
+    document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden" && sync.timer) pushState(true); });
+  }
   if (!ROOT.hasAttribute("data-no-sw") && "serviceWorker" in navigator && /^https?:$/.test(location.protocol) && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
     navigator.serviceWorker.register("sw.js").catch(function () {});
   }

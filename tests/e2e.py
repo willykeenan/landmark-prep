@@ -45,6 +45,22 @@ with sync_playwright() as p:
             ok(h1 in pg.inner_text("main h1"), f"[{tag}] {route} renders")
             w = pg.evaluate("document.documentElement.scrollWidth - window.innerWidth")
             ok(w <= 1, f"[{tag}] {route} has no horizontal scroll ({w}px)")
+        # Your next step: the licensing path one step at a time, with a course pace
+        pg.goto(BASE + "#/"); pg.wait_for_selector(".journey")
+        ok(pg.locator(".journey h2").inner_text() == "Check that you're eligible", f"[{tag}] next-step card starts at the first step")
+        pg.click("[data-jdone]"); pg.wait_for_selector(".journey")
+        ok("77-hour course" in pg.inner_text(".journey h2") and "learncycle.com" in pg.get_attribute(".journey a.btn.primary", "href"), f"[{tag}] marking a step done moves to the course, linked to the free school")
+        pg.fill("#jHours", "7"); pg.dispatch_event("#jHours", "change")
+        pg.fill("#jTarget", "2099-01-01"); pg.dispatch_event("#jTarget", "change")
+        ok("hour" in pg.inner_text("#jPace") and "70 hours" in pg.inner_text("#jPace"), f"[{tag}] course pace is worked out from hours and date")
+        # Settings: color themes
+        pg.goto(BASE + "#/settings"); pg.wait_for_selector(".palettes")
+        pg.click("[data-pal='blush']")
+        ok(pg.evaluate("document.documentElement.getAttribute('data-palette')") == "blush", f"[{tag}] Blush theme applies")
+        w = pg.evaluate("document.documentElement.scrollWidth - window.innerWidth")
+        ok(w <= 1, f"[{tag}] settings has no horizontal scroll ({w}px)")
+        pg.click("[data-pal='classic']")
+        ok(pg.evaluate("document.documentElement.hasAttribute('data-palette')") is False, f"[{tag}] Classic theme restores the default")
         if tag == "desktop":
             pg.goto(BASE + "#/"); pg.screenshot(path=os.path.join(IMG, "home.png"))
             pg.goto(BASE + "#/roadmap"); pg.screenshot(path=os.path.join(IMG, "roadmap.png"))

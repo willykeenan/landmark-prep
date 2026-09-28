@@ -107,6 +107,33 @@ class TutorTest(unittest.TestCase):
         _, h = self.req("/history", user="ang")
         self.assertFalse(any("secret question from iso" in m["content"] for m in h["messages"]))
 
+    def test_study_state_syncs_per_user_and_newest_wins(self):
+        self.app.store.upsert_user("syn", "Syn", "granted")
+        self.assertEqual(self.req("/state", user="syn"), (200, {"data": None, "savedAt": 0}))
+        c, r = self.req("/state", {"data": {"road": {"course": True}, "palette": "blush"}, "savedAt": 2000}, user="syn")
+        self.assertEqual(c, 200)
+        self.assertEqual(r["data"]["palette"], "blush")
+        # An older save from another device must not overwrite a newer one.
+        self.req("/state", {"data": {"road": {}}, "savedAt": 1000}, user="syn")
+        c, r = self.req("/state", user="syn")
+        self.assertEqual((c, r["savedAt"], r["data"]["road"]), (200, 2000, {"course": True}))
+        # Other users never see it, and users without access are refused.
+        _, other = self.req("/state", user="ang")
+        self.assertNotEqual((other.get("data") or {}).get("palette"), "blush")
+        self.assertEqual(self.req("/state", user="bob")[0], 402)
+        self.assertEqual(self.req("/state", {"data": [], "savedAt": 3000}, user="syn")[0], 400)
+
+    def test_state_size_limit(self):
+        # The server refuses before reading the body, so the client sees either the 413
+        # or the connection closing mid-upload; both mean the oversized save was refused.
+        big = {"data": {"q": {"x" * 10: "y" * 700_000}}, "savedAt": 5}
+        try:
+            code = self.req("/state", big)[0]
+        except (urllib.error.URLError, ConnectionError):
+            code = 413
+        self.assertEqual(code, 413)
+        self.assertEqual(self.req("/state")[1].get("savedAt"), 0)
+
     def test_path_prefix_from_tunnel(self):
         self.assertEqual(self.req("/ny-tutor/health", token=None, user=None)[0], 200)
 

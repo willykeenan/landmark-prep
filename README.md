@@ -21,6 +21,8 @@ Free, open-source exam prep for the **real estate salesperson license, in every 
 | **Mock exam** | Drawn from every unit in proportion to its study hours. You get pass/fail, a per-unit breakdown and a full review. New York uses the state format; other states get the national portion, sized to their exam. |
 | **Unlimited math drills** | 24 problem types, including commission splits, net-to-seller, prorations, cap rates and depreciation. New York adds transfer, mortgage-recording and mansion tax. Problems are freshly generated each time. |
 | **Licensing roadmap** | Step by step, with official links. New York shows how to get licensed for about **$80 total** (a free state-approved 77-hour course, the $15 exam and the $65 license). Every other state shows its quoted requirements. |
+| **Your next step** | The home page walks you through getting licensed one step at a time, with the link you need for each (for New York: the free state-approved course, your NY photo ID at the DMV, booking a proctor, the exam, a sponsoring broker). Enter your course hours and a target date to get a weekly pace. |
+| **Make it yours** | Settings has color themes (Classic navy and gold, Blush pink and white, Lavender) in light or dark, each checked for WCAG AA contrast. |
 
 Progress is saved in your browser, and you can export or import it to switch devices.
 
@@ -47,7 +49,8 @@ node scripts/check-state-sources.mjs TX NJ    # just these
 
 - **Per-student memory, database style:** a local SQLite database holds each user's access level (`granted` / `paid` / `none`), full conversation history, latest study progress, and a short **brainfile**. The tutor rewrites the brainfile as it learns the student's goals, weak spots and preferences, and mirrors it to `data/brains/<user>.md`.
 - **Locked down:** the model runs with **no tools** (`--tools ""`), no MCP servers, no user or project settings or hooks, in an empty temporary directory. It can only return text. Requests need a shared bearer token, and there are per-user rate limits.
-- **Hook it up:** serve the app with `<html data-tutor-api="/your/api">`. Your server handles sign-in and forwards `POST /chat` and `GET /history` to the tutor with `Authorization: Bearer <token>` and `X-KE-User: <username>`. Add `data-default-state="NY"` to open on a state.
+- **Progress sync:** with the tutor configured, the app also saves the student's whole study state to their account (`GET`/`POST /state`, newest save wins), so it follows them between phone and laptop.
+- **Hook it up:** serve the app with `<html data-tutor-api="/your/api">`. Your server handles sign-in and forwards `POST /chat` and `GET /history` to the tutor with `Authorization: Bearer <token>` and `X-KE-User: <username>`. Forward `/state` the same way. Optional: `data-default-state="NY"` opens on a state, `data-default-palette="blush"` picks the starting colors, and `data-user-name="Sam"` greets the student by name.
 - **Runs under launchd/systemd:** the service finds the `claude` CLI in the usual install locations and passes the account name the CLI needs to find its login.
 
 ![Tutor tab](docs/images/tutor.png)

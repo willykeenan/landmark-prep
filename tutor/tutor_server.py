@@ -122,6 +122,12 @@ CREATE TABLE IF NOT EXISTS progress (
   snapshot TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS app_state (
+  user_id TEXT PRIMARY KEY REFERENCES users(id),
+  data TEXT NOT NULL,
+  saved_at REAL NOT NULL,
+  updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS usage (
   user_id TEXT NOT NULL,
   at REAL NOT NULL
@@ -129,6 +135,7 @@ CREATE TABLE IF NOT EXISTS usage (
 CREATE INDEX IF NOT EXISTS usage_user ON usage(user_id, at);
 """
 
+STATE_MAX_BYTES = 600_000  # a heavy user's full study state is well under this
 USER_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,39}$")
 
 
@@ -240,6 +247,27 @@ class Store:
         except ValueError:
             return None
 
+    # full study state, so progress follows the student across devices
+    def set_app_state(self, uid: str, data: dict, saved_at: float):
+        blob = json.dumps(data, separators=(",", ":"))
+        with self.lock, self.conn() as c:
+            c.execute(
+                "INSERT INTO app_state(user_id,data,saved_at,updated_at) VALUES(?,?,?,?) "
+                "ON CONFLICT(user_id) DO UPDATE SET data=excluded.data, saved_at=excluded.saved_at, "
+                "updated_at=excluded.updated_at WHERE excluded.saved_at >= app_state.saved_at",
+                (uid, blob, saved_at, now_iso()),
+            )
+
+    def app_state(self, uid: str):
+        with self.conn() as c:
+            r = c.execute("SELECT data,saved_at FROM app_state WHERE user_id=?", (uid,)).fetchone()
+        if not r:
+            return {"data": None, "savedAt": 0}
+        try:
+            return {"data": json.loads(r["data"]), "savedAt": r["saved_at"]}
+        except ValueError:
+            return {"data": None, "savedAt": 0}
+
     # rate limiting
     def allow(self, uid: str, per_hour: int, per_day: int) -> bool:
         t = time.time()
@@ -344,6 +372,7 @@ How to tutor:
 - Teach for the exam: give the rule, the number to memorize, and the common trap. Use a tiny example when it helps.
 - When they ask to be quizzed, ask ONE multiple-choice question at a time (A–D), wait for the answer, then explain.
 - Use their progress data to focus on weak units and to suggest what to study next.
+- You are also their guide through getting licensed. You can see their next step on the licensing path below; when it fits, check in on it or help them do it (their New York photo ID at the DMV, the free LearnCycle 77-hour course, booking a proctor for the course final, the state exam on eAccessNY, finding a sponsoring broker).
 - Ground answers in the reference notes below (from the official NYS DOS 77-hour syllabus and the Real Estate License Law). If something isn't covered or you're unsure, say so and point them to dos.ny.gov. Never invent laws, fees or numbers.
 - Laws change: for fees, deadlines or rules, mention the "as of" date when it matters.
 - You are not a lawyer and don't give legal, tax or financial advice for real transactions. Stay on real estate licensing, the exam, and study help. Politely decline unrelated requests.
@@ -376,6 +405,11 @@ def summarize_progress(p: dict | None) -> str:
         lines.append(f"- Mock exam {e.get('date')}: {e.get('score')}/{e.get('total')}")
     if s.get("roadmap"):
         lines.append("Licensing steps done: " + ", ".join(map(str, s["roadmap"])))
+    j = s.get("journey") or {}
+    if j.get("nextStep"):
+        lines.append(f"Licensing path: {j.get('stepsDone')}/{j.get('stepsTotal')} steps done; next step: {j.get('nextStep')}")
+    if j.get("courseHoursDone") is not None or j.get("courseTargetDate"):
+        lines.append(f"Required course: {j.get('courseHoursDone') or 0} hours done; wants to finish by {j.get('courseTargetDate') or 'no date set'}")
     if s.get("cardsMastered") is not None:
         lines.append(f"Flashcards mastered: {s.get('cardsMastered')}")
     return "\n".join(lines)
@@ -517,6 +551,10 @@ def make_handler(app: App):
                 if not has_access(app.store.user(uid)):
                     return self._send(402, {"error": "payment_required"})
                 return self._send(200, app.store.brain(uid))
+            if r == "/state":
+                if not has_access(app.store.user(uid)):
+                    return self._send(402, {"error": "payment_required"})
+                return self._send(200, app.store.app_state(uid))
             self._send(404, {"error": "not_found"})
 
         def do_POST(self):
@@ -528,18 +566,27 @@ def make_handler(app: App):
                 n = int(self.headers.get("Content-Length") or 0)
             except ValueError:
                 n = 0
-            if n <= 0 or n > 64_000:
+            limit = STATE_MAX_BYTES if r == "/state" else 64_000
+            if n <= 0 or n > limit:
                 return self._send(413, {"error": "bad_size"})
             try:
                 body = json.loads(self.rfile.read(n))
             except ValueError:
                 return self._send(400, {"error": "bad_json"})
+            if r == "/state":
+                if not has_access(app.store.user(uid)):
+                    return self._send(402, {"error": "payment_required"})
+                data, saved_at = body.get("data"), body.get("savedAt")
+                if not isinstance(data, dict) or not isinstance(saved_at, (int, float)) or saved_at <= 0:
+                    return self._send(400, {"error": "bad_state"})
+                app.store.set_app_state(uid, data, float(saved_at))
+                return self._send(200, app.store.app_state(uid) | {"ok": True})
             if r == "/chat":
                 msg = str(body.get("message") or "").strip()
                 if not msg or len(msg) > 4000:
                     return self._send(400, {"error": "bad_message"})
                 unit = body.get("unit")
-                unit = unit if isinstance(unit, int) and 1 <= unit <= 19 else None
+                unit = unit if isinstance(unit, int) and (1 <= unit <= 19 or 101 <= unit <= 111) else None
                 res = app.chat(uid, msg, unit, body.get("progress"))
                 code = res.pop("status")
                 return self._send(code, res)

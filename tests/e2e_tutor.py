@@ -54,8 +54,10 @@ class Site(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/api/history"):
             return self._proxy("/history")
+        if self.path.startswith("/api/state"):
+            return self._proxy("/state")
         if self.path in ("/", "/index.html"):
-            html = (ROOT / "index.html").read_text().replace('<html lang="en">', '<html lang="en" data-tutor-api="/api" data-logout="/logout" data-default-state="NY" data-no-sw>')
+            html = (ROOT / "index.html").read_text().replace('<html lang="en">', '<html lang="en" data-tutor-api="/api" data-logout="/logout" data-default-state="NY" data-default-palette="blush" data-user-name="Sam" data-no-sw>')
             b = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -65,7 +67,7 @@ class Site(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         n = int(self.headers.get("Content-Length") or 0)
-        return self._proxy("/chat", self.rfile.read(n))
+        return self._proxy("/state" if self.path.startswith("/api/state") else "/chat", self.rfile.read(n))
 
 
 site = ThreadingHTTPServer(("127.0.0.1", 0), Site)
@@ -110,6 +112,21 @@ with sync_playwright() as p:
     pg.click("#tsend")
     pg.wait_for_function("!document.querySelector('.msg.typing')")
     ok(pg.locator(".msg.me img").count() == 0, "student text is escaped (no HTML injection)")
+    # Private deployment: greeted by name, pink theme by default, tutor banner instead of "coming soon"
+    pg.goto(BASE + "#/"); pg.wait_for_selector(".journey")
+    ok("hi sam" in pg.inner_text(".journey .eyebrow").lower() and pg.evaluate("document.querySelector(\"main\").firstElementChild.classList.contains(\"journey\")"), "signed-in home opens on her next step, greeted by name")
+    ok(pg.evaluate("document.documentElement.getAttribute('data-palette')") == "blush", "private page starts in the Blush theme")
+    ok("Your tutor is ready" in pg.inner_text("main") and "Coming soon" not in pg.inner_text("main"), "home offers the tutor instead of a sales pitch")
+    # Progress follows the student to another device (a second browser with empty storage)
+    pg.click("[data-jdone]"); pg.wait_for_selector(".journey")
+    pg.fill("#jHours", "12"); pg.dispatch_event("#jHours", "change")
+    pg.evaluate("new Promise(function (r) { setTimeout(r, 3500); })")
+    saved = app.store.app_state("student")
+    ok(bool(saved["data"]) and saved["data"]["road"].get("eligible") and saved["data"]["plan"].get("hours") == 12, "progress saved to the student's account")
+    other = b.new_context(viewport={"width": 390, "height": 844}).new_page()
+    other.on("pageerror", lambda e: errors.append(str(e)))
+    other.goto(BASE + "#/"); other.wait_for_function("document.querySelector('.journey h2') && document.querySelector('.journey h2').textContent.indexOf('77-hour') >= 0", timeout=15000)
+    ok(other.input_value("#jHours") == "12", "second device picks up the same step and course hours")
     b.close()
 
 site.shutdown()
